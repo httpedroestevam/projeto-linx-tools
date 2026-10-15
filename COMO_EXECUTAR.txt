@@ -1,0 +1,15 @@
+LINXTOOLS V1.3 — PORTAL DA OPERAÇÃO
+
+1) Requer Node.js 20 ou superior.
+2) Abra esta pasta no VS Code.
+3) No terminal, execute: npm start
+4) Abra: http://localhost:3000
+5) Para criar o primeiro administrador, abra outro terminal na mesma pasta e execute: npm run create:admin
+6) Após fazer login, abra: http://localhost:3000/operacao
+7) Cadastre colaboradores na seção "Usuários" e conceda permissões de publicação.
+8) Use os módulos de Comunicados, Vídeos, Releases, Links e Configurações.
+
+Para testar: npm test
+Para documentação completa: README.md
+
+Projeto de demonstração independente. Para publicação real na rede, leia as instruções de segurança e migração do README.

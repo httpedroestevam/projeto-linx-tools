@@ -1,0 +1,11 @@
+// Catálogo inicial. O repositório (local ou Supabase) é a fonte de leitura da API.
+export const starterTools = [
+  { id: 'xml-validator', slug: 'xml-validator', name: 'Validador de XML', description: 'Verifique a estrutura de arquivos XML e identifique erros de sintaxe.', category: 'Validação', icon: 'file-code', accent: 'purple', status: 'ready', featured: true, sort_order: 10 },
+  { id: 'json-formatter', slug: 'json-formatter', name: 'Formatador de JSON', description: 'Formate, compacte e valide respostas JSON em poucos segundos.', category: 'Validação', icon: 'braces', accent: 'violet', status: 'ready', featured: true, sort_order: 20 },
+  { id: 'scope-checker', slug: 'scope-checker', name: 'Fora de Escopo', description: 'Receba uma orientação inicial de classificação e encaminhamento.', category: 'Atendimento', icon: 'route', accent: 'pink', status: 'ready', featured: false, sort_order: 30 },
+  { id: 'share-builder', slug: 'share-builder', name: 'Share', description: 'Organize e compartilhe procedimentos técnicos com um clique.', category: 'Produtividade', icon: 'share', accent: 'coral', status: 'ready', featured: false, sort_order: 40 },
+  { id: 'script-generator', slug: 'script-generator', name: 'Gerador de Script', description: 'Monte comandos de diagnóstico com parâmetros personalizáveis.', category: 'Produtividade', icon: 'terminal', accent: 'orange', status: 'ready', featured: true, sort_order: 50 },
+  { id: 'feedback-generator', slug: 'feedback-generator', name: 'Gerador de Feedback', description: 'Crie respostas claras e padronizadas para atendimentos.', category: 'Atendimento', icon: 'message', accent: 'gold', status: 'ready', featured: true, sort_order: 60 },
+  { id: 'text-utilities', slug: 'text-utilities', name: 'Utilitários', description: 'Conte caracteres, limpe textos e remova linhas duplicadas.', category: 'Produtividade', icon: 'sparkles', accent: 'slate', status: 'ready', featured: false, sort_order: 70 },
+  { id: 'releases', slug: 'releases', name: 'Releases', description: 'Uma área dedicada a novidades, versões e melhorias de produto.', category: 'Conhecimento', icon: 'bell', accent: 'charcoal', status: 'ready', featured: false, sort_order: 80 }
+];
