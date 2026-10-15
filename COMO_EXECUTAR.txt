@@ -7,7 +7,7 @@ LINXTOOLS V1.3 — PORTAL DA OPERAÇÃO
 5) Para criar o primeiro administrador, abra outro terminal na mesma pasta e execute: npm run create:admin
 6) Após fazer login, abra: http://localhost:3000/operacao
 7) Cadastre colaboradores na seção "Usuários" e conceda permissões de publicação.
-8) Use os módulos de Comunicados, Vídeos, Releases, Links e Configurações.
+8) Use os módulos de Comunica  56.1653141.5641.65156.1dos, Vídeos, Releases, Links e Configurações.
 
 Para testar: npm test
 Para documentação completa: README.md
