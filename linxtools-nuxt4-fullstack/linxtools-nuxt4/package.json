@@ -1,0 +1,31 @@
+{
+  "name": "linxtools-nuxt4",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "description": "Portal da Operação em Nuxt 4, Vue 3, TypeScript e API Nitro",
+  "scripts": {
+    "dev": "nuxt dev --host 127.0.0.1 --port 3000",
+    "build": "nuxt build",
+    "preview": "nuxt preview --port 3000",
+    "start": "node .output/server/index.mjs",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "test": "node --test tests/*.test.mjs",
+    "create:admin": "node scripts/create-admin.mjs",
+    "migrate:supabase": "node scripts/migrate-to-supabase.mjs"
+  },
+  "dependencies": {
+    "nuxt": "^4.2.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vue-tsc": "^3.1.0",
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

@@ -1,0 +1,18 @@
+LINXTOOLS — NUXT 4 + VUE 3 + TYPESCRIPT
+
+1. Instale Node.js 22 LTS.
+2. Abra a pasta linxtools-nuxt4 no VS Code.
+3. Abra um terminal integrado.
+4. Rode: npm install
+5. Rode: npm run create:admin (se não importar usuários da V1.3)
+6. Rode: npm run dev
+7. Abra: http://127.0.0.1:3000
+8. Faça login: http://127.0.0.1:3000/login
+9. Portal da Operação: http://127.0.0.1:3000/operacao
+
+Para importar os usuários e comunicados anteriores:
+node scripts/import-v13.mjs "CAMINHO_DO_DATA_JSON_ANTIGO"
+Se já existir um banco na nova instalação, use --replace (gera backup).
+
+Não coloque senhas na URL. Não publique storage/data.json.
+Leia README.md para detalhes e limitações.

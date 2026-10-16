@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS public.notices (
   priority text NOT NULL DEFAULT 'normal' CHECK(priority IN ('normal','important','critical')),
   status text NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published')),
   pinned boolean NOT NULL DEFAULT false,
+  display_order integer NOT NULL DEFAULT 1,
   requires_ack boolean NOT NULL DEFAULT false,
   author_id uuid REFERENCES public.app_users(id) ON DELETE SET NULL,
   author_name text NOT NULL DEFAULT '',
@@ -137,3 +138,55 @@ CREATE TABLE IF NOT EXISTS public.portal_settings (
 ALTER TABLE public.portal_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.portal_settings ENABLE ROW LEVEL SECURITY;
 -- Somente a chave service_role no servidor pode acessar estas tabelas.
+
+-- V1.4 — ordenação manual persistente de comunicados.
+ALTER TABLE public.notices ADD COLUMN IF NOT EXISTS display_order integer;
+WITH ranked_notices AS (
+  SELECT id, ROW_NUMBER() OVER (
+    ORDER BY pinned DESC, COALESCE(published_at, created_at) DESC, id ASC
+  ) AS position
+  FROM public.notices
+)
+UPDATE public.notices AS notice
+SET display_order = ranked_notices.position::integer
+FROM ranked_notices
+WHERE notice.id = ranked_notices.id AND notice.display_order IS NULL;
+ALTER TABLE public.notices ALTER COLUMN display_order SET DEFAULT 1;
+ALTER TABLE public.notices ALTER COLUMN display_order SET NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_notices_display_order
+  ON public.notices(display_order ASC, id ASC);
+
+CREATE OR REPLACE FUNCTION public.reorder_notices(p_notice_ids uuid[])
+RETURNS boolean
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  LOCK TABLE public.notices IN SHARE ROW EXCLUSIVE MODE;
+
+  IF p_notice_ids IS NULL
+    OR cardinality(p_notice_ids) <> (SELECT count(*) FROM public.notices)
+    OR cardinality(p_notice_ids) <> (
+      SELECT count(DISTINCT requested.notice_id)
+      FROM unnest(p_notice_ids) AS requested(notice_id)
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM unnest(p_notice_ids) AS requested(notice_id)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM public.notices AS notice WHERE notice.id = requested.notice_id
+      )
+    )
+  THEN
+    RAISE EXCEPTION 'A lista de comunicados não corresponde aos registros atuais.';
+  END IF;
+
+  UPDATE public.notices AS notice
+  SET display_order = requested.position::integer, updated_at = now()
+  FROM unnest(p_notice_ids) WITH ORDINALITY AS requested(notice_id, position)
+  WHERE notice.id = requested.notice_id;
+
+  RETURN true;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.reorder_notices(uuid[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.reorder_notices(uuid[]) TO service_role;
