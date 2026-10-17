@@ -28,6 +28,17 @@ type SortDirection = "asc" | "desc" | null;
 type NoticeColumn = "title" | "category" | "status" | "published_at" | "actions";
 type OptionSortColumn = "label";
 type OptionColumn = OptionSortColumn | "actions";
+type SetFilterKey =
+  | "notice-title"
+  | "notice-category"
+  | "notice-status"
+  | "notice-publication"
+  | "category-name"
+  | "priority-name";
+interface SetFilterChoice {
+  value: string;
+  label: string;
+}
 interface NoticeTableState {
   filters: Record<string, string>;
   appliedFilters: Record<string, string>;
@@ -86,6 +97,15 @@ const noticeOptions = ref<NoticeOptions>({
 });
 const optionDraft = ref("");
 const optionEditingId = ref<string | null>(null);
+const setFilterSelections = ref<Record<SetFilterKey, string[] | null>>({
+  "notice-title": null,
+  "notice-category": null,
+  "notice-status": null,
+  "notice-publication": null,
+  "category-name": null,
+  "priority-name": null,
+});
+const openSetFilter = ref<SetFilterKey | null>(null);
 const noticeTable = ref<NoticeTableState>({
   filters: {
     title: "",
@@ -221,12 +241,143 @@ const noticeOptionList = computed(() =>
 const noticeOptionLabel = computed(() =>
   noticeTab.value === "categories" ? "categoria" : "prioridade",
 );
+const noticeCategoryFilterOptions = computed<SetFilterChoice[]>(() => {
+  const categories = new Set(
+    (records.value.notices || []).map((notice) => String(notice.category || "")),
+  );
+  return [...categories]
+    .filter(Boolean)
+    .map((value) => ({
+      value,
+      label:
+        noticeOptions.value.categories.find((option) => option.id === value)
+          ?.label || value,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" }));
+});
+const noticeStatusFilterOptions = computed<SetFilterChoice[]>(() => {
+  const statuses = new Set(
+    (records.value.notices || []).map((notice) => stateLabel(notice)),
+  );
+  return [...statuses]
+    .map((value) => ({ value, label: value }))
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" }));
+});
+const noticeTitleFilterOptions = computed<SetFilterChoice[]>(() => {
+  const titles = new Set(
+    (records.value.notices || [])
+      .map((notice) => String(notice.title || "").trim())
+      .filter(Boolean),
+  );
+  return [...titles]
+    .map((value) => ({ value, label: value }))
+    .sort((a, b) =>
+      a.label.localeCompare(b.label, "pt-BR", {
+        sensitivity: "base",
+        numeric: true,
+      }),
+    );
+});
+const noticePublicationFilterOptions = computed<SetFilterChoice[]>(() => {
+  const dates = new Set(
+    (records.value.notices || []).map((notice) => {
+      const timestamp = notice.published_at
+        ? new Date(notice.published_at).getTime()
+        : Number.NaN;
+      return Number.isNaN(timestamp)
+        ? ""
+        : new Date(timestamp).toISOString().slice(0, 10);
+    }),
+  );
+  return [...dates]
+    .map((value) => ({
+      value,
+      label: value ? formatNoticeDate(value) : "Sem data",
+    }))
+    .sort((a, b) =>
+      a.value.localeCompare(b.value, "pt-BR", { numeric: true }),
+    );
+});
+const categoryNameFilterOptions = computed<SetFilterChoice[]>(() =>
+  noticeOptions.value.categories
+    .map((option) => ({ value: option.id, label: option.label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" })),
+);
+const priorityNameFilterOptions = computed<SetFilterChoice[]>(() =>
+  noticeOptions.value.priorities
+    .map((option) => ({ value: option.id, label: option.label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" })),
+);
+const noticeOptionFilterOptions = computed(() =>
+  noticeTab.value === "categories"
+    ? categoryNameFilterOptions.value
+    : priorityNameFilterOptions.value,
+);
+const noticeOptionFilterKey = computed<SetFilterKey>(() =>
+  noticeTab.value === "categories" ? "category-name" : "priority-name",
+);
 const normalizeNoticeFilter = (value: unknown) =>
   String(value || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("pt-BR")
     .trim();
+function matchesSetFilter(key: SetFilterKey, value: string) {
+  const selected = setFilterSelections.value[key];
+  return selected === null || selected.includes(value);
+}
+function isSetFilterActive(key: SetFilterKey, options: SetFilterChoice[]) {
+  const selected = setFilterSelections.value[key];
+  return (
+    selected !== null &&
+    (selected.length !== options.length ||
+      options.some((option) => !selected.includes(option.value)))
+  );
+}
+function updateSetFilter(key: SetFilterKey, selected: string[] | null) {
+  setFilterSelections.value[key] = selected;
+  openSetFilter.value = key;
+  if (key === "notice-category" || key === "notice-status")
+    noticeTable.value.page = 1;
+  else optionTable.value.page = 1;
+}
+function toggleSetFilter(key: SetFilterKey) {
+  openSetFilter.value = openSetFilter.value === key ? null : key;
+}
+function syncSetFilterValues(
+  key: SetFilterKey,
+  options: SetFilterChoice[],
+  previousOptions: SetFilterChoice[],
+) {
+  const selected = setFilterSelections.value[key];
+  if (selected === null) return;
+  const previousValues = new Set(previousOptions.map((option) => option.value));
+  const nextValues = options
+    .filter(
+      (option) => selected.includes(option.value) || !previousValues.has(option.value),
+    )
+    .map((option) => option.value);
+  setFilterSelections.value[key] =
+    nextValues.length === options.length ? null : nextValues;
+}
+watch(noticeCategoryFilterOptions, (options, previousOptions) =>
+  syncSetFilterValues("notice-category", options, previousOptions),
+);
+watch(noticeTitleFilterOptions, (options, previousOptions) =>
+  syncSetFilterValues("notice-title", options, previousOptions),
+);
+watch(noticeStatusFilterOptions, (options, previousOptions) =>
+  syncSetFilterValues("notice-status", options, previousOptions),
+);
+watch(noticePublicationFilterOptions, (options, previousOptions) =>
+  syncSetFilterValues("notice-publication", options, previousOptions),
+);
+watch(categoryNameFilterOptions, (options, previousOptions) =>
+  syncSetFilterValues("category-name", options, previousOptions),
+);
+watch(priorityNameFilterOptions, (options, previousOptions) =>
+  syncSetFilterValues("priority-name", options, previousOptions),
+);
 const filteredSortedNotices = computed(() => {
   const filters = noticeTable.value.appliedFilters;
   const filtered = (records.value.notices || []).filter((notice) => {
@@ -244,6 +395,7 @@ const filteredSortedNotices = computed(() => {
       ? ""
       : formatDate(notice.published_at);
     return (
+      matchesSetFilter("notice-title", String(notice.title || "")) &&
       (!filters.title ||
         normalizeNoticeFilter(`${notice.title || ""} ${notice.body || ""}`).includes(
           normalizeNoticeFilter(filters.title),
@@ -252,10 +404,16 @@ const filteredSortedNotices = computed(() => {
         normalizeNoticeFilter(category).includes(
           normalizeNoticeFilter(filters.category),
         )) &&
+      matchesSetFilter("notice-category", notice.category) &&
       (!filters.status ||
         normalizeNoticeFilter(stateLabel(notice)).includes(
           normalizeNoticeFilter(filters.status),
         )) &&
+      matchesSetFilter("notice-status", stateLabel(notice)) &&
+      matchesSetFilter(
+        "notice-publication",
+        Number.isNaN(timestamp) ? "" : new Date(timestamp).toISOString().slice(0, 10),
+      ) &&
       (!filters.published_at ||
         normalizeNoticeFilter(`${noticeDate} ${formattedNoticeDate}`).includes(
           normalizeNoticeFilter(filters.published_at),
@@ -329,6 +487,7 @@ const filteredSortedNoticeOptions = computed(() => {
   return noticeOptionList.value
     .filter(
       (option) =>
+        matchesSetFilter(noticeOptionFilterKey.value, option.id) &&
         (!filters.label ||
           normalizeNoticeFilter(option.label).includes(
             normalizeNoticeFilter(filters.label),
@@ -360,7 +519,8 @@ const optionPageCount = computed(() =>
   ),
 );
 const hasNoticeOptionFilters = computed(() =>
-  Object.values(optionTable.value.filters).some(Boolean),
+  Object.values(optionTable.value.filters).some(Boolean) ||
+  isSetFilterActive(noticeOptionFilterKey.value, noticeOptionFilterOptions.value),
 );
 watch(
   () => ({ ...optionTable.value.filters }),
@@ -378,9 +538,12 @@ watch(optionPageCount, (pageCount) => {
 });
 watch(noticeTab, () => {
   optionTable.value.page = 1;
+  openSetFilter.value = null;
 });
 onBeforeUnmount(() => {
   if (optionFilterDebounce) clearTimeout(optionFilterDebounce);
+  document.removeEventListener("pointerdown", closeSetFilterOnOutside);
+  document.removeEventListener("keydown", closeSetFilterOnEscape);
 });
 function sortNoticeOptionsBy(column: OptionSortColumn) {
   if (optionTable.value.sortBy !== column) {
@@ -393,6 +556,17 @@ function sortNoticeOptionsBy(column: OptionSortColumn) {
     optionTable.value.sortDirection = null;
   }
 }
+function closeSetFilterOnOutside(event: PointerEvent) {
+  const target = event.target;
+  if (
+    target instanceof Element &&
+    !target.closest(".set-filter-popover")
+  )
+    openSetFilter.value = null;
+}
+function closeSetFilterOnEscape(event: KeyboardEvent) {
+  if (event.key === "Escape") openSetFilter.value = null;
+}
 function optionSortIndicator(column: OptionSortColumn) {
   if (optionTable.value.sortBy !== column) return "";
   return optionTable.value.sortDirection === "asc" ? " ↑" : " ↓";
@@ -401,6 +575,8 @@ function clearNoticeOptionFilters() {
   if (optionFilterDebounce) clearTimeout(optionFilterDebounce);
   optionTable.value.filters = { label: "" };
   optionTable.value.appliedFilters = { label: "" };
+  setFilterSelections.value["category-name"] = null;
+  setFilterSelections.value["priority-name"] = null;
   optionTable.value.page = 1;
 }
 function sortNoticesBy(column: NoticeSortColumn) {
@@ -425,6 +601,10 @@ function clearNoticeFilters() {
     published_at: "",
   };
   noticeTable.value.appliedFilters = { ...noticeTable.value.filters };
+  setFilterSelections.value["notice-title"] = null;
+  setFilterSelections.value["notice-category"] = null;
+  setFilterSelections.value["notice-status"] = null;
+  setFilterSelections.value["notice-publication"] = null;
   noticeTable.value.page = 1;
 }
 function startNoticeDrag(event: PointerEvent, notice: Notice) {
@@ -546,7 +726,11 @@ function finishNoticeDrag() {
   dragInsertPosition.value = null;
 }
 const hasNoticeFilters = computed(() =>
-  Object.values(noticeTable.value.filters).some((value) => value !== ""),
+  Object.values(noticeTable.value.filters).some((value) => value !== "") ||
+  isSetFilterActive("notice-title", noticeTitleFilterOptions.value) ||
+  isSetFilterActive("notice-category", noticeCategoryFilterOptions.value) ||
+  isSetFilterActive("notice-status", noticeStatusFilterOptions.value) ||
+  isSetFilterActive("notice-publication", noticePublicationFilterOptions.value),
 );
 function noticeSortIndicator(column: NoticeSortColumn) {
   if (noticeTable.value.sortBy !== column) return "";
@@ -853,6 +1037,8 @@ async function chooseUserTab(tab: UserTab) {
   await load();
 }
 onMounted(async () => {
+  document.addEventListener("pointerdown", closeSetFilterOnOutside);
+  document.addEventListener("keydown", closeSetFilterOnEscape);
   await session.refresh();
   ready.value = true;
   if (session.user.value && visibleSections.value.length) await load();
@@ -1315,6 +1501,8 @@ function formatNoticeDate(value?: string | null) {
                       <th
                         :class="{
                           'sorted-column': optionTable.sortBy === 'label',
+                          'set-filter-open':
+                            openSetFilter === noticeOptionFilterKey,
                         }"
                         :aria-sort="
                           optionTable.sortBy === 'label'
@@ -1324,13 +1512,34 @@ function formatNoticeDate(value?: string | null) {
                             : 'none'
                         "
                       >
-                        <button
-                          class="sortable-heading"
-                          type="button"
-                          @click="sortNoticeOptionsBy('label')"
-                        >
-                          Nome{{ optionSortIndicator("label") }}
-                        </button>
+                        <div class="filterable-heading">
+                          <button
+                            class="sortable-heading"
+                            type="button"
+                            @click="sortNoticeOptionsBy('label')"
+                          >
+                            Nome{{ optionSortIndicator("label") }}
+                          </button>
+                          <SetFilterPopover
+                            :id="noticeOptionFilterKey"
+                            :label="noticeTab === 'categories' ? 'Categoria' : 'Prioridade'"
+                            :options="noticeOptionFilterOptions"
+                            :model-value="
+                              setFilterSelections[noticeOptionFilterKey]
+                            "
+                            :open="openSetFilter === noticeOptionFilterKey"
+                            :active="
+                              isSetFilterActive(
+                                noticeOptionFilterKey,
+                                noticeOptionFilterOptions,
+                              )
+                            "
+                            @toggle="toggleSetFilter(noticeOptionFilterKey)"
+                            @update:model-value="
+                              updateSetFilter(noticeOptionFilterKey, $event)
+                            "
+                          />
+                        </div>
                         <span
                           class="notice-column-resizer"
                           role="separator"
@@ -2102,7 +2311,9 @@ function formatNoticeDate(value?: string | null) {
                             type="button"
                             @click="sortNoticesBy('published_at')"
                           >
-                            Publicação{{ noticeSortIndicator("published_at") }}
+                            Publicação{{
+                              noticeSortIndicator("published_at")
+                            }}
                           </button>
                           <span
                             class="notice-column-resizer"
@@ -2144,42 +2355,154 @@ function formatNoticeDate(value?: string | null) {
                           />
                         </th>
                       </tr>
-                      <tr v-if="current === 'notices'" class="notice-filter-row">
-                        <th>
+                      <tr
+                        v-if="current === 'notices'"
+                        class="notice-filter-row"
+                      >
+                        <th
+                          :class="{
+                            'set-filter-open': openSetFilter === 'notice-title',
+                          }"
+                        >
+                          <div class="notice-filter-control">
                           <input
                             v-model="noticeTable.filters.title"
                             class="notice-table-filter"
                             type="search"
                             aria-label="Filtrar comunicados por título ou conteúdo"
-                            placeholder=""
+                            placeholder="Filtrar..."
                           />
+                            <SetFilterPopover
+                              id="notice-title"
+                              label="Título"
+                              compact
+                              :options="noticeTitleFilterOptions"
+                              :model-value="
+                                setFilterSelections['notice-title']
+                              "
+                              :open="openSetFilter === 'notice-title'"
+                              :active="
+                                isSetFilterActive(
+                                  'notice-title',
+                                  noticeTitleFilterOptions,
+                                )
+                              "
+                              @toggle="toggleSetFilter('notice-title')"
+                              @update:model-value="
+                                updateSetFilter('notice-title', $event)
+                              "
+                            />
+                          </div>
                         </th>
-                        <th>
+                        <th
+                          :class="{
+                            'set-filter-open':
+                              openSetFilter === 'notice-category',
+                          }"
+                        >
+                          <div class="notice-filter-control">
                           <input
                             v-model="noticeTable.filters.category"
                             class="notice-table-filter"
                             type="search"
                             aria-label="Filtrar categoria"
-                            placeholder=""
+                            placeholder="Filtrar..."
                           />
+                            <SetFilterPopover
+                              id="notice-category"
+                              label="Categoria"
+                              compact
+                              :options="noticeCategoryFilterOptions"
+                              :model-value="
+                                setFilterSelections['notice-category']
+                              "
+                              :open="openSetFilter === 'notice-category'"
+                              :active="
+                                isSetFilterActive(
+                                  'notice-category',
+                                  noticeCategoryFilterOptions,
+                                )
+                              "
+                              @toggle="toggleSetFilter('notice-category')"
+                              @update:model-value="
+                                updateSetFilter('notice-category', $event)
+                              "
+                            />
+                          </div>
                         </th>
-                        <th>
+                        <th
+                          :class="{
+                            'set-filter-open':
+                              openSetFilter === 'notice-status',
+                          }"
+                        >
+                          <div class="notice-filter-control">
                           <input
                             v-model="noticeTable.filters.status"
                             class="notice-table-filter"
                             type="search"
                             aria-label="Filtrar status"
-                            placeholder=""
+                            placeholder="Filtrar..."
                           />
+                            <SetFilterPopover
+                              id="notice-status"
+                              label="Status"
+                              align="right"
+                              compact
+                              :options="noticeStatusFilterOptions"
+                              :model-value="
+                                setFilterSelections['notice-status']
+                              "
+                              :open="openSetFilter === 'notice-status'"
+                              :active="
+                                isSetFilterActive(
+                                  'notice-status',
+                                  noticeStatusFilterOptions,
+                                )
+                              "
+                              @toggle="toggleSetFilter('notice-status')"
+                              @update:model-value="
+                                updateSetFilter('notice-status', $event)
+                              "
+                            />
+                          </div>
                         </th>
-                        <th>
+                        <th
+                          :class="{
+                            'set-filter-open':
+                              openSetFilter === 'notice-publication',
+                          }"
+                        >
+                          <div class="notice-filter-control">
                           <input
                             v-model="noticeTable.filters.published_at"
                             class="notice-table-filter"
                             type="search"
                             aria-label="Filtrar data de publicação"
-                            placeholder=" "
+                            placeholder="Filtrar..."
                           />
+                            <SetFilterPopover
+                              id="notice-publication"
+                              label="Publicação"
+                              align="right"
+                              compact
+                              :options="noticePublicationFilterOptions"
+                              :model-value="
+                                setFilterSelections['notice-publication']
+                              "
+                              :open="openSetFilter === 'notice-publication'"
+                              :active="
+                                isSetFilterActive(
+                                  'notice-publication',
+                                  noticePublicationFilterOptions,
+                                )
+                              "
+                              @toggle="toggleSetFilter('notice-publication')"
+                              @update:model-value="
+                                updateSetFilter('notice-publication', $event)
+                              "
+                            />
+                          </div>
                         </th>
                         <th>
                         </th>
@@ -2443,14 +2766,19 @@ function formatNoticeDate(value?: string | null) {
   gap: 8px;
 }
 .sortable-heading {
+  display: block;
+  width: 100%;
+  height: 24px;
+  margin: 0 auto;
   padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 13px;
-  font-weight: inherit;
-  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 24px;
+  text-align: center;
   white-space: nowrap;
 }
 .sortable-heading:hover {
@@ -2459,9 +2787,24 @@ function formatNoticeDate(value?: string | null) {
 .sortable-heading:disabled {
   cursor: default;
 }
+.filterable-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.notice-record-table th.set-filter-open,
+.option-record-table th.set-filter-open {
+  z-index: 20;
+}
 .notice-record-table th[aria-sort="ascending"],
 .notice-record-table th[aria-sort="descending"] {
   background: #f3edfc;
+  color: var(--purple-dark);
+}
+.option-record-table th[aria-sort="ascending"],
+.option-record-table th[aria-sort="descending"] {
+  background: #e9e0f3;
   color: var(--purple-dark);
 }
 .notice-record-table {
@@ -2470,6 +2813,73 @@ function formatNoticeDate(value?: string | null) {
 }
 .notice-record-table .records {
   width: 100%;
+}
+.notice-record-table thead tr:first-child th,
+.option-record-table thead tr:first-child th,
+.notice-record-table thead tr.notice-filter-row th {
+  box-sizing: border-box;
+  height: 36px;
+  padding: 6px 12px;
+  vertical-align: middle;
+}
+.notice-record-table thead {
+  background: #f3f0f7;
+}
+.notice-record-table thead tr:first-child th {
+  background: #f3f0f7;
+  color: var(--ink);
+  line-height: 24px;
+}
+.notice-record-table thead tr.notice-filter-row th {
+  background: #f8f6fb;
+  border-top: 1px solid var(--border);
+  line-height: normal;
+}
+.notice-record-table thead tr:first-child th[aria-sort="ascending"],
+.notice-record-table thead tr:first-child th[aria-sort="descending"] {
+  background: #e9e0f3;
+  color: var(--purple-dark);
+}
+.option-record-table thead {
+  background: #f3f0f7;
+}
+.option-record-table thead tr:first-child th {
+  background: #f3f0f7;
+  color: var(--ink);
+  line-height: 24px;
+}
+.option-record-table thead tr.notice-filter-row th {
+  background: #f8f6fb;
+  border-top: 1px solid var(--border);
+  line-height: normal;
+}
+.option-record-table thead tr:first-child th[aria-sort="ascending"],
+.option-record-table thead tr:first-child th[aria-sort="descending"] {
+  background: #e9e0f3;
+  color: var(--purple-dark);
+}
+.notice-filter-control {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+}
+.notice-filter-control .notice-table-filter {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  padding: 3px 8px;
+  box-sizing: border-box;
+}
+.notice-filter-control .set-filter-popover {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 24px;
 }
 .notice-record-table tbody td:first-child {
   overflow-wrap: anywhere;
@@ -2607,12 +3017,15 @@ function formatNoticeDate(value?: string | null) {
   outline: none;
 }
 .notice-filter-row th {
-  padding-top: 6px;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 6px 12px;
+  vertical-align: middle;
 }
 .notice-table-filter {
   display: block;
   width: 100%;
-  min-width: 90px;
+  min-width: 0;
   margin-top: 8px;
   padding: 7px 8px;
   border: 1px solid var(--border);
@@ -2621,6 +3034,11 @@ function formatNoticeDate(value?: string | null) {
   color: var(--ink);
   font: inherit;
   font-size: 13px;
+  opacity: 1;
+}
+.notice-table-filter::placeholder {
+  color: #9ca3af;
+  opacity: 0.4;
 }
 .notice-pagination {
   display: flex;
