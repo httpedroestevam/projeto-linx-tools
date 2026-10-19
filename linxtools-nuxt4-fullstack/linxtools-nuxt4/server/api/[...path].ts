@@ -1,10 +1,13 @@
-import { getCookie, setCookie, deleteCookie, getRequestHeader, getMethod, getRequestURL, readRawBody, setResponseHeader, createError, defineEventHandler } from 'h3'
+import { getCookie, setCookie, deleteCookie, getRequestHeader, getMethod, getRequestURL, readRawBody, readMultipartFormData, send, setResponseHeader, createError, defineEventHandler } from 'h3'
 import type { H3Event } from 'h3'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { getRepository } from '../utils/repository'
 import { HttpError } from '../legacy/lib/http.js'
 import { executeTool } from '../legacy/services/tools.js'
 import { makeToken, hashToken, hashPassword, verifyPassword, cleanUser, validateEmail, SESSION_SECONDS } from '../legacy/services/auth.js'
-import { noticeInput, noticeOptionsInput, videoInput } from '../legacy/services/content.js'
+import { noticeInput, noticeOptionsInput, sanitizeNotice, videoInput } from '../legacy/services/content.js'
 import { accountInput, releaseInput, linkInput, settingsInput, profilePermissionsInput, hasPermission } from '../legacy/services/portal.js'
 
 const limits = new Map<string,{count:number;expires:number}>()
@@ -29,7 +32,7 @@ function allowed(user:any,capability:string) {signedIn(user);if(!hasPermission(u
 function admin(user:any){signedIn(user);if(user.role!=='admin')error(403,'Acesso reservado a administradores.')}
 async function body(event:H3Event) {
   const raw=await readRawBody(event,'utf8')
-  if(!raw)error(400,'Corpo da requisição obrigatório.')
+  if(!raw)throw createError({statusCode:400,statusMessage:'Corpo da requisição obrigatório.'})
   if(Buffer.byteLength(raw,'utf8')>300_000)error(413,'Conteúdo maior do que 300 KB.')
   let value:any
   try {value=JSON.parse(raw)} catch {error(400,'Envie um JSON válido.')} 
@@ -37,16 +40,17 @@ async function body(event:H3Event) {
   return value
 }
 function cookie(event:H3Event,token:string) {
-  setCookie(event,'lt_session',token,{httpOnly:true,secure:process.env.NODE_ENV==='production' && !['localhost','127.0.0.1'].includes(String(getRequestHeader(event,'host')||'').split(':')[0]),sameSite:'strict',path:'/',maxAge:SESSION_SECONDS})
+  setCookie(event,'lt_session',token,{httpOnly:true,secure:process.env.NODE_ENV==='production' && !['localhost','127.0.0.1'].includes(String(getRequestHeader(event,'host')||'').split(':')[0]??''),sameSite:'strict',path:'/',maxAge:SESSION_SECONDS})
 }
 function verifyOrigin(event:H3Event) {
-  const origin=getRequestHeader(event,'origin')
-  const target=getRequestHeader(event,'host')
+  const origin=getRequestHeader(event,'origin')||''
+  const target=getRequestHeader(event,'host')||''
   if(origin) {
     try {if(new URL(origin).host!==target)error(403,'Origem não permitida.')} catch {error(403,'Origem não permitida.')} 
   }
   const contentType=getRequestHeader(event,'content-type')||''
-  if(getMethod(event)!=='DELETE' && !contentType.toLowerCase().includes('application/json'))error(415,'Use Content-Type: application/json.')
+  const multipartUpload=getRequestURL(event).pathname==='/api/admin/notices/images'&&contentType.toLowerCase().startsWith('multipart/form-data;')
+  if(getMethod(event)!=='DELETE' && !contentType.toLowerCase().includes('application/json')&&!multipartUpload)error(415,'Use Content-Type: application/json.')
 }
 export default defineEventHandler(async(event) => {
   setResponseHeader(event,'Cache-Control','no-store')
@@ -82,6 +86,75 @@ export default defineEventHandler(async(event) => {
     const currentSession=token&&/^[\w-]{40,100}$/.test(token)?await repo.getSession(hashToken(token)):null
     const found=currentSession?await repo.getUserById(currentSession.user_id):null
     const user=found && found.active!==false?found:null
+    if(path.startsWith('/api/notices/media/')){
+      const filename=path.slice('/api/notices/media/'.length)
+      if(!/^[\w-]{36}\.(?:png|jpg|gif|webp)$/.test(filename))error(404,'Imagem não encontrada.')
+      const imagePath=resolve(process.cwd(),'storage','uploads','notices',filename)
+      let image
+      try {image=await readFile(imagePath)} catch(cause) {
+        if((cause as NodeJS.ErrnoException).code==='ENOENT')error(404,'Imagem não encontrada.')
+        throw cause
+      }
+      const mime=filename.endsWith('.png')?'image/png':filename.endsWith('.jpg')?'image/jpeg':filename.endsWith('.gif')?'image/gif':'image/webp'
+      setResponseHeader(event,'Content-Type',mime)
+      setResponseHeader(event,'Cache-Control','public, max-age=31536000, immutable')
+      setResponseHeader(event,'X-Content-Type-Options','nosniff')
+      return send(event,image,mime)
+    }
+    if(path==='/api/admin/notices/images'&&method==='POST'){
+      allowed(user,'notices')
+      const parts=await readMultipartFormData(event)
+      const file=parts?.find(part=>part.name==='file')
+      if(!file)throw createError({statusCode:400,statusMessage:'Envie uma imagem PNG, JPEG, GIF ou WebP.'})
+      const mime=file.type||''
+      const extensions:Record<string,string>={'image/png':'png','image/jpeg':'jpg','image/gif':'gif','image/webp':'webp'}
+      const extension=extensions[mime]
+      if(!extension)throw createError({statusCode:400,statusMessage:'Envie uma imagem PNG, JPEG, GIF ou WebP.'})
+      if(file.data.length>5*1024*1024)error(413,'A imagem não pode ultrapassar 5 MB.')
+      const validSignature=mime==='image/png'
+        ? file.data.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+        : mime==='image/jpeg'
+          ? file.data[0]===0xff&&file.data[1]===0xd8&&file.data[2]===0xff
+          : mime==='image/gif'
+            ? file.data.subarray(0,6).toString('ascii').match(/^GIF8[79]a$/)!==null
+            : file.data.subarray(0,4).toString('ascii')==='RIFF'&&file.data.subarray(8,12).toString('ascii')==='WEBP'
+      if(!validSignature)error(400,'O conteúdo do arquivo não corresponde a uma imagem válida.')
+      const filename=`${randomUUID()}.${extension}`
+      const config=useRuntimeConfig(event)
+      const provider=process.env.DATA_PROVIDER||String(config.dataProvider||'local')
+      if(provider==='supabase'){
+        const supabaseUrl=process.env.SUPABASE_URL||String(config.supabaseUrl||'')
+        const serviceKey=process.env.SUPABASE_SERVICE_ROLE_KEY||String(config.supabaseServiceRoleKey||'')
+        if(!supabaseUrl||!serviceKey)error(503,'O armazenamento Supabase não está configurado.')
+        const bucket=process.env.SUPABASE_NOTICE_MEDIA_BUCKET||'notice-media'
+        const headers={apikey:serviceKey,Authorization:`Bearer ${serviceKey}`}
+        const bucketResponse=await fetch(`${supabaseUrl}/storage/v1/bucket`,{
+          method:'POST',
+          headers:{...headers,'Content-Type':'application/json'},
+          body:JSON.stringify({id:bucket,name:bucket,public:true,file_size_limit:5*1024*1024,allowed_mime_types:Object.keys(extensions)})
+        })
+        if(!bucketResponse.ok&&bucketResponse.status!==409)error(502,'Não foi possível preparar o armazenamento de imagens.')
+        if(bucketResponse.status===409){
+          const updateBucketResponse=await fetch(`${supabaseUrl}/storage/v1/bucket/${encodeURIComponent(bucket)}`,{
+            method:'PUT',
+            headers:{...headers,'Content-Type':'application/json'},
+            body:JSON.stringify({public:true,file_size_limit:5*1024*1024,allowed_mime_types:Object.keys(extensions)})
+          })
+          if(!updateBucketResponse.ok)error(502,'Não foi possível configurar o bucket público de imagens.')
+        }
+        const uploadResponse=await fetch(`${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${filename}`,{
+          method:'POST',
+          headers:{...headers,'Content-Type':mime,'Cache-Control':'max-age=31536000'},
+          body:new Uint8Array(file.data)
+        })
+        if(!uploadResponse.ok)error(502,'Não foi possível armazenar a imagem.')
+        return {location:`${supabaseUrl.replace(/\/$/,'')}/storage/v1/object/public/${encodeURIComponent(bucket)}/${filename}`}
+      }
+      const imageDirectory=resolve(process.cwd(),'storage','uploads','notices')
+      await mkdir(imageDirectory,{recursive:true})
+      await writeFile(resolve(imageDirectory,filename),file.data,{flag:'wx'})
+      return {location:`/api/notices/media/${filename}`}
+    }
     if(path==='/api/auth/me'&&method==='GET')return {user:cleanUser(user)}
     if(path==='/api/auth/login'&&method==='POST'){
       const v=await body(event)
@@ -100,14 +173,15 @@ export default defineEventHandler(async(event) => {
       return {ok:true}
     }
     if(path==='/api/notices'&&method==='GET'){
-      const notices=await repo.listNotices(user?.id)
+      const notices=(await repo.listNotices(user?.id)).map(sanitizeNotice)
       return {notices:user?notices:notices.slice(0,3).map(publicNotice),noticeOptions:await repo.getNoticeOptions()}
     }
     const noticeId=routeId(path,'/api/notices')
     if(noticeId&&method==='GET'){
       const notice=await repo.getNotice(noticeId,user?.id)
       if(!notice)error(404,'Comunicado não encontrado.')
-      return {notice:user?notice:publicNotice(notice),noticeOptions:await repo.getNoticeOptions()}
+      const safeNotice=sanitizeNotice(notice)
+      return {notice:user?safeNotice:publicNotice(safeNotice),noticeOptions:await repo.getNoticeOptions()}
     }
     const acknowledgeId=ackId(path)
     if(acknowledgeId&&method==='POST'){
@@ -125,7 +199,7 @@ export default defineEventHandler(async(event) => {
     }
     if(path==='/api/admin/notices'){
       allowed(user,'notices')
-      if(method==='GET')return {notices:await repo.listNotices(user.id,true)}
+      if(method==='GET')return {notices:(await repo.listNotices(user.id,true)).map(sanitizeNotice)}
       if(method==='POST'){
         const v:any=noticeInput(await body(event),{options:await repo.getNoticeOptions()})
         if(v.status==='published'&&!v.published_at)v.published_at=now()

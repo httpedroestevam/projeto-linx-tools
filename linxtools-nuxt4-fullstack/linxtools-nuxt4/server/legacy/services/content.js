@@ -1,4 +1,116 @@
 import { field, HttpError } from '../lib/http.js';
+import sanitizeHtml from 'sanitize-html';
+
+const noticeHtmlOptions = {
+  allowedTags: [
+    ...sanitizeHtml.defaults.allowedTags,
+    'img',
+    'figure',
+    'figcaption',
+    'iframe',
+    'video',
+    'source',
+    'u',
+    's',
+    'del',
+    'sup',
+    'sub',
+    'span',
+    'div',
+    'hr',
+    'table',
+    'thead',
+    'tbody',
+    'tfoot',
+    'tr',
+    'th',
+    'td',
+    'pre',
+    'code',
+  ],
+  allowedAttributes: {
+    '*': ['class', 'style', 'title'],
+    a: ['href', 'name', 'target', 'rel'],
+    img: ['src', 'srcset', 'alt', 'width', 'height', 'loading'],
+    iframe: [
+      'src',
+      'title',
+      'width',
+      'height',
+      'allow',
+      'allowfullscreen',
+      'frameborder',
+      'loading',
+      'referrerpolicy',
+    ],
+    video: ['src', 'width', 'height', 'controls', 'poster'],
+    source: ['src', 'type'],
+    table: ['border', 'cellpadding', 'cellspacing', 'width'],
+    th: ['colspan', 'rowspan', 'scope', 'width', 'height'],
+    td: ['colspan', 'rowspan', 'width', 'height'],
+  },
+  allowedStyles: {
+    '*': {
+      color: [/^#[0-9a-f]{3,8}$/i, /^rgba?\([\d\s.,%]+\)$/i, /^[a-z]+$/i],
+      'background-color': [
+        /^#[0-9a-f]{3,8}$/i,
+        /^rgba?\([\d\s.,%]+\)$/i,
+        /^[a-z]+$/i,
+      ],
+      'font-family': [/^[\w\s,"'-]+$/],
+      'font-size': [/^\d{1,3}(?:px|pt|em|rem|%)$/i],
+      'font-weight': [/^(?:normal|bold|[1-9]00)$/i],
+      'font-style': [/^(?:normal|italic|oblique)$/i],
+      'text-align': [/^(?:left|right|center|justify)$/i],
+      'text-decoration': [/^(?:none|underline|line-through|overline)$/i],
+      'line-height': [/^(?:normal|\d+(?:\.\d+)?(?:px|em|rem|%)?)$/i],
+      width: [/^\d{1,4}(?:px|%|em|rem)?$/i],
+      height: [/^\d{1,4}(?:px|%|em|rem)?$/i],
+      'border-collapse': [/^(?:collapse|separate)$/i],
+      'border-width': [/^\d{1,3}(?:px|pt)?$/i],
+      'border-style': [/^(?:none|solid|dashed|dotted|double)$/i],
+      'border-color': [/^#[0-9a-f]{3,8}$/i, /^[a-z]+$/i],
+      'vertical-align': [/^(?:top|middle|bottom|baseline)$/i],
+      float: [/^(?:left|right|none)$/i],
+      display: [/^(?:block|inline|inline-block)$/i],
+      'max-width': [/^\d{1,4}(?:px|%|em|rem)?$/i],
+      margin: [/^\d{1,3}(?:px|pt|em|rem|%)?(?:\s+\d{1,3}(?:px|pt|em|rem|%)?){0,3}$/i],
+      'margin-left': [/^\d{1,3}(?:px|pt|em|rem|%)?$/i],
+      'margin-right': [/^\d{1,3}(?:px|pt|em|rem|%)?$/i],
+      padding: [/^\d{1,3}(?:px|pt|em|rem|%)?(?:\s+\d{1,3}(?:px|pt|em|rem|%)?){0,3}$/i],
+    },
+  },
+  allowedSchemes: ['http', 'https', 'mailto', 'tel'],
+  allowedSchemesByTag: {
+    img: ['http', 'https'],
+    iframe: ['http', 'https'],
+    video: ['http', 'https'],
+    source: ['http', 'https'],
+  },
+  allowedIframeHostnames: [
+    'youtube.com',
+    'www.youtube.com',
+    'youtube-nocookie.com',
+    'www.youtube-nocookie.com',
+    'player.vimeo.com',
+  ],
+  allowProtocolRelative: false,
+  transformTags: {
+    a: sanitizeHtml.simpleTransform(
+      'a',
+      { rel: 'noopener noreferrer' },
+      true,
+    ),
+  },
+};
+
+export function sanitizeNoticeHtml(value) {
+  return sanitizeHtml(value, noticeHtmlOptions);
+}
+
+export function sanitizeNotice(notice) {
+  return { ...notice, body: sanitizeNoticeHtml(String(notice.body || '')) };
+}
 
 export const defaultNoticeOptions = {
   categories: [
@@ -39,8 +151,13 @@ export function normalizeNoticeOptions(input) {
 export function noticeInput(input, { partial = false, options = defaultNoticeOptions } = {}) {
   const result = {};
   const selectedOptions=normalizeNoticeOptions(options);
-  for (const [name, limit] of [['title',140], ['body',8000]]) {
+  for (const [name, limit] of [['title',140]]) {
     if (!partial || Object.hasOwn(input, name)) result[name] = field(input[name],name,limit);
+  }
+  if (!partial || Object.hasOwn(input, 'body')) {
+    const body = sanitizeNoticeHtml(field(input.body, 'body', 200000));
+    if (!body.trim()) throw new HttpError(400, 'O conteúdo do comunicado não pode ficar vazio.');
+    result.body = body;
   }
   const defaults={category:selectedOptions.categories[0].id,priority:selectedOptions.priorities.find(p=>p.id==='normal')?.id||selectedOptions.priorities[0].id,status:'published'};
   for (const [name, values] of [['category',selectedOptions.categories.map(c=>c.id)],['priority',selectedOptions.priorities.map(p=>p.id)],['status',['draft','published']]]) {

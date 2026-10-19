@@ -1,4 +1,5 @@
 node_modules/
+/public/tinymce/
 .nuxt/
 .output/
 .env

@@ -120,6 +120,12 @@ linxtools-nuxt4/
 
 A migração não importa sessões; após a troca de armazenamento, usuários devem autenticar novamente. O script é para bases pequenas, não possui reconciliação transacional nem mecanismo de rollback automático. **As políticas de RLS, o login com Supabase Auth e o deploy dependem da arquitetura final escolhida** e não foram migrados nesta versão. Em operação real, prefira conectar uma solução de identidade corporativa ou Supabase Auth com políticas apropriadas.
 
+### Imagens e editor de comunicados
+
+O editor de comunicados usa TinyMCE 8 self-hosted, interface em Português do Brasil, e a licença comunitária GPL-2.0-or-later (`license-key="gpl"`). Confirme que a distribuição do sistema atende às obrigações GPL; para distribuição proprietária incompatível, obtenha uma licença comercial TinyMCE antes de publicar. O pós-instalação prepara as traduções e recursos de interface necessários em `public/tinymce`.
+
+Uploads aceitam PNG, JPEG, GIF e WebP de até 5 MB. Com `DATA_PROVIDER=local`, os arquivos ficam em `storage/uploads/notices`. Com `DATA_PROVIDER=supabase`, a API cria e usa um bucket público, por padrão `notice-media`; outro nome pode ser definido com `SUPABASE_NOTICE_MEDIA_BUCKET`. A chave de serviço permanece no servidor. O HTML é sanitizado tanto ao salvar quanto ao servir comunicados existentes; somente imagens e iframes de vídeo com hosts permitidos são preservados.
+
 ## 5. Testes e limites da entrega
 
 `npm test` executa testes automatizados **do domínio e armazenamento local** (incluindo XML/JSON, contas, permissões e publicações). Após instalar dependências, rode também:
@@ -129,6 +135,6 @@ npm run typecheck
 npm run build
 ```
 
-O pacote foi criado em ambiente sem acesso ao registro npm. Portanto, **não foi possível instalar Nuxt, compilar a aplicação ou realizar testes de interface com o servidor Nuxt real** neste ambiente. Os testes Node do domínio foram executados e aprovados. Valide as telas e fluxos em sua máquina antes de usar em produção.
+O build e os testes automatizados devem ser executados após cada alteração. A validação de uploads Supabase requer um projeto configurado; o modo local pode ser usado sem serviço externo.
 
-Limitações: o validador XML é sintático, não fiscal/XSD; uploads de vídeo e anexos não estão implementados; vídeos são incorporados por links permitidos; não existem notificações push, auditoria completa nem segmentação de comunicados por equipe. Para implantação corporativa, são necessários HTTPS, recuperação de conta, rate limiting distribuído, trilha de auditoria, políticas de backup, proteção de credenciais e testes de integração com banco real.
+Limitações: o validador XML é sintático, não fiscal/XSD; vídeos são incorporados por links permitidos; não existem notificações push, auditoria completa nem segmentação de comunicados por equipe. Para implantação corporativa, são necessários HTTPS, recuperação de conta, rate limiting distribuído, trilha de auditoria, políticas de backup, proteção de credenciais e testes de integração com banco real.

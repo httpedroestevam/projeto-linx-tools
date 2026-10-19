@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Tool, PortalConfig, Notice, NoticeOptions } from "../../shared/types";
+import { noticeExcerpt } from "#shared/utils/notice-content";
 const { data: toolData } = await useFetch<{ tools: Tool[] }>("/api/tools");
 const { data: portalData } = await useFetch<{ portal: PortalConfig }>(
   "/api/portal",
@@ -89,10 +90,7 @@ onMounted(async () => {
               {{ notice.pinned ? "📌 Em destaque" : noticeCategoryLabel(notice.category) }}
             </span>
             <h3>{{ notice.title }}</h3>
-            <p>
-              {{ notice.body.slice(0, 140)
-              }}{{ notice.body.length > 140 ? "…" : "" }}
-            </p>
+            <p>{{ noticeExcerpt(notice.body, 140) }}</p>
             <span class="inline-link">Ler comunicado →</span>
           </NuxtLink>
           <div v-if="!notices.length" class="notice-feature panel">

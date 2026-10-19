@@ -9,6 +9,8 @@ import type {
   Role,
   User,
 } from "../../shared/types";
+import { onBeforeRouteLeave } from "vue-router";
+import { noticePlainText } from "#shared/utils/notice-content";
 type Section =
   | "overview"
   | "notices"
@@ -178,6 +180,15 @@ const noticeTableWidth = computed(() =>
 let noticeFilterDebounce: ReturnType<typeof setTimeout> | undefined;
 let optionFilterDebounce: ReturnType<typeof setTimeout> | undefined;
 const form = reactive<Record<string, any>>({});
+const noticeRichTextEditor = ref<{
+  uploadPendingImages: () => Promise<void>;
+} | null>(null);
+const formSnapshot = ref("");
+const hasUnsavedFormChanges = computed(
+  () =>
+    showEditor.value &&
+    JSON.stringify(form) !== formSnapshot.value,
+);
 const isAdmin = computed(() => session.user.value?.role === "admin");
 const sections: {
   id: Section;
@@ -397,7 +408,9 @@ const filteredSortedNotices = computed(() => {
     return (
       matchesSetFilter("notice-title", String(notice.title || "")) &&
       (!filters.title ||
-        normalizeNoticeFilter(`${notice.title || ""} ${notice.body || ""}`).includes(
+        normalizeNoticeFilter(
+          `${notice.title || ""} ${noticePlainText(notice.body || "")}`,
+        ).includes(
           normalizeNoticeFilter(filters.title),
         )) &&
       (!filters.category ||
@@ -916,6 +929,7 @@ function newRecord() {
   }
   editing.value = false;
   showEditor.value = true;
+  formSnapshot.value = JSON.stringify(form);
   success.value = "";
   error.value = "";
 }
@@ -943,13 +957,22 @@ function editRecord(item: Record<string, any>) {
         : "";
   editing.value = true;
   showEditor.value = true;
+  formSnapshot.value = JSON.stringify(form);
   error.value = "";
   success.value = "";
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 function closeEditor() {
+  if (!confirmDiscardUnsavedForm()) return false;
   showEditor.value = false;
   error.value = "";
+  return true;
+}
+function confirmDiscardUnsavedForm() {
+  return (
+    !hasUnsavedFormChanges.value ||
+    window.confirm("Há alterações não salvas. Deseja descartá-las?")
+  );
 }
 async function load() {
   error.value = "";
@@ -1011,18 +1034,18 @@ async function choose(tab: Section) {
     error.value = "Acesso à gestão de usuários reservado a administradores.";
     return;
   }
+  if (!closeEditor()) return;
   current.value = tab;
   if (tab === "users") userTab.value = "accounts";
   if (tab === "notices") noticeTab.value = "records";
-  closeEditor();
   success.value = "";
   await load();
 }
 async function chooseNoticeTab(tab: NoticeTab) {
+  if (!closeEditor()) return;
   noticeTab.value = tab;
   optionDraft.value = "";
   optionEditingId.value = null;
-  closeEditor();
   success.value = "";
   await load();
 }
@@ -1031,17 +1054,29 @@ async function chooseUserTab(tab: UserTab) {
     error.value = "Acesso à gestão de usuários reservado a administradores.";
     return;
   }
+  if (!closeEditor()) return;
   userTab.value = tab;
-  closeEditor();
   success.value = "";
   await load();
 }
+function preventLeavingUnsavedForm(event: BeforeUnloadEvent) {
+  if (!hasUnsavedFormChanges.value) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
+onBeforeRouteLeave(confirmDiscardUnsavedForm);
 onMounted(async () => {
   document.addEventListener("pointerdown", closeSetFilterOnOutside);
   document.addEventListener("keydown", closeSetFilterOnEscape);
+  window.addEventListener("beforeunload", preventLeavingUnsavedForm);
   await session.refresh();
   ready.value = true;
   if (session.user.value && visibleSections.value.length) await load();
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", closeSetFilterOnOutside);
+  document.removeEventListener("keydown", closeSetFilterOnEscape);
+  window.removeEventListener("beforeunload", preventLeavingUnsavedForm);
 });
 const canOpen = computed(
   () =>
@@ -1080,8 +1115,17 @@ async function save() {
   if (busy.value) return;
   error.value = "";
   success.value = "";
+  if (
+    current.value === "notices" &&
+    !noticePlainText(String(form.body || ""))
+  ) {
+    error.value = "O conteúdo do comunicado não pode ficar vazio.";
+    return;
+  }
   busy.value = true;
   try {
+    if (current.value === "notices")
+      await noticeRichTextEditor.value?.uploadPendingImages();
     const key = colMap[current.value];
     const url = editing.value
       ? `/api/admin/${key}/${form.id}`
@@ -1892,14 +1936,27 @@ function formatNoticeDate(value?: string | null) {
                       />
                     </div>
                     <div class="field full">
-                      <label for="notice_body">Conteúdo</label
-                      ><textarea
-                        id="notice_body"
-                        v-model="form.body"
-                        maxlength="8000"
-                        rows="8"
-                        required
-                      />
+                      <label for="notice_body_editor">Conteúdo</label>
+                      <ClientOnly>
+                        <NoticeRichTextEditor
+                          ref="noticeRichTextEditor"
+                          v-model="form.body"
+                          id="notice_body_editor"
+                        />
+                        <template #fallback>
+                          <textarea
+                            id="notice_body_editor"
+                            v-model="form.body"
+                            rows="8"
+                            required
+                            aria-label="Conteúdo do comunicado"
+                          />
+                        </template>
+                      </ClientOnly>
+                      <p class="form-help">
+                        Use a barra de ferramentas para formatar o texto,
+                        inserir imagens, vídeos, links e tabelas.
+                      </p>
                     </div>
                     <div class="field">
                       <label for="notice_category">Categoria</label
