@@ -1,5 +1,7 @@
+import type { ToolRecord } from './types.ts';
+
 // Catálogo inicial. O repositório (local ou Supabase) é a fonte de leitura da API.
-export const starterTools = [
+export const starterTools: ToolRecord[] = [
   { id: 'xml-validator', slug: 'xml-validator', name: 'Validador de XML', description: 'Verifique a estrutura de arquivos XML e identifique erros de sintaxe.', category: 'Validação', icon: 'file-code', accent: 'purple', status: 'ready', featured: true, sort_order: 10 },
   { id: 'json-formatter', slug: 'json-formatter', name: 'Formatador de JSON', description: 'Formate, compacte e valide respostas JSON em poucos segundos.', category: 'Validação', icon: 'braces', accent: 'violet', status: 'ready', featured: true, sort_order: 20 },
   { id: 'scope-checker', slug: 'scope-checker', name: 'Fora de Escopo', description: 'Receba uma orientação inicial de classificação e encaminhamento.', category: 'Atendimento', icon: 'route', accent: 'pink', status: 'ready', featured: false, sort_order: 30 },

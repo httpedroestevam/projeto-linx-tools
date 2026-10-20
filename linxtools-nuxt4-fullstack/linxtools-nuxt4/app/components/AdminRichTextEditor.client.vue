@@ -268,7 +268,7 @@ watch(
 </script>
 
 <template>
-  <div class="notice-rich-text-editor">
+  <div class="admin-rich-text-editor w-full min-w-0 overflow-visible">
     <Editor
       :id="id"
       license-key="gpl"
@@ -280,12 +280,7 @@ watch(
 </template>
 
 <style>
-.notice-rich-text-editor {
-  width: 100%;
-  min-width: 0;
-  overflow: visible;
-}
-.notice-rich-text-editor .tox-tinymce {
+.admin-rich-text-editor .tox-tinymce {
   border: 1px solid #e8e4ef;
   border-radius: 10px;
   box-shadow: 0 4px 16px rgb(59 32 113 / 5%);

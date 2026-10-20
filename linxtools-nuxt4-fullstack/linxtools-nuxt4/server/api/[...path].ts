@@ -4,11 +4,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { getRepository } from '../utils/repository'
-import { HttpError } from '../legacy/lib/http.js'
-import { executeTool } from '../legacy/services/tools.js'
-import { makeToken, hashToken, hashPassword, verifyPassword, cleanUser, validateEmail, SESSION_SECONDS } from '../legacy/services/auth.js'
-import { noticeInput, noticeOptionsInput, sanitizeNotice, videoInput } from '../legacy/services/content.js'
-import { accountInput, releaseInput, linkInput, settingsInput, profilePermissionsInput, hasPermission } from '../legacy/services/portal.js'
+import { HttpError } from '../legacy/lib/http.ts'
+import { executeTool } from '../legacy/services/tools.ts'
+import { makeToken, hashToken, hashPassword, verifyPassword, cleanUser, validateEmail, SESSION_SECONDS } from '../legacy/services/auth.ts'
+import { noticeInput, noticeOptionsInput, sanitizeNotice, sanitizeNoticeHtml, videoInput } from '../legacy/services/content.ts'
+import { accountInput, releaseInput, linkInput, settingsInput, profilePermissionsInput, hasPermission } from '../legacy/services/portal.ts'
+import type { Capability } from '../legacy/types.ts'
 
 const limits = new Map<string,{count:number;expires:number}>()
 const uuid = '[a-f\\d-]{36}'
@@ -17,6 +18,9 @@ const routeId = (path:string, prefix:string) => path.match(new RegExp(`^${prefix
 const ackId = (path:string) => path.match(new RegExp(`^/api/notices/(${uuid})/ack$`))?.[1]
 const now = () => new Date().toISOString()
 const publicNotice = (notice:any) => {const {author_id,...visible}=notice;return visible}
+const sanitizeVideo = (video:any) => ({...video,description:sanitizeNoticeHtml(String(video.description||''))})
+const sanitizeRelease = (release:any) => ({...release,summary:sanitizeNoticeHtml(String(release.summary||''))})
+const sanitizeLink = (link:any) => ({...link,description:sanitizeNoticeHtml(String(link.description||''))})
 const methods = ['GET','POST','PATCH','DELETE']
 const error = (code:number,message:string):never => {throw new HttpError(code,message)}
 function consume(key:string,max:number,windowMs:number) {
@@ -28,7 +32,7 @@ function consume(key:string,max:number,windowMs:number) {
   if(entry.count>max)error(429,'Muitas tentativas. Aguarde antes de tentar novamente.')
 }
 function signedIn(user:any): asserts user {if(!user)error(401,'Faça login para acessar esta área.')}
-function allowed(user:any,capability:string) {signedIn(user);if(!hasPermission(user,capability))error(403,'Sem permissão para esta operação.')}
+function allowed(user:any,capability:Capability) {signedIn(user);if(!hasPermission(user,capability))error(403,'Sem permissão para esta operação.')}
 function admin(user:any){signedIn(user);if(user.role!=='admin')error(403,'Acesso reservado a administradores.')}
 async function body(event:H3Event) {
   const raw=await readRawBody(event,'utf8')
@@ -68,11 +72,11 @@ export default defineEventHandler(async(event) => {
     const ip=getRequestHeader(event,'x-real-ip') || event.node.req.socket?.remoteAddress || 'local'
     if(path==='/api/health'&&method==='GET')return {ok:true,version:'2.0.0',framework:'nuxt4-nitro'}
     if(path==='/api/tools'&&method==='GET')return {tools:await repo.listTools()}
-    if(path==='/api/releases'&&method==='GET')return {releases:await repo.listReleases()}
+    if(path==='/api/releases'&&method==='GET')return {releases:(await repo.listReleases()).map(sanitizeRelease)}
     if(path==='/api/portal'&&method==='GET')return {portal:await repo.getPortal()}
     if(/^\/api\/tools\/[a-z-]+\/execute$/.test(path)&&method==='POST'){
       consume(`tool:${ip}`,90,60_000)
-      return {result:executeTool(path.split('/')[3],await body(event))}
+      return {result:executeTool(path.split('/')[3] ?? '',await body(event))}
     }
     if(path==='/api/ideas'&&method==='POST'){
       consume(`idea:${ip}`,5,60_000)
@@ -102,7 +106,8 @@ export default defineEventHandler(async(event) => {
       return send(event,image,mime)
     }
     if(path==='/api/admin/notices/images'&&method==='POST'){
-      allowed(user,'notices')
+      signedIn(user)
+      if(!(['notices','videos','releases','links'] as const).some(capability=>hasPermission(user,capability)))error(403,'Sem permissão para publicar conteúdo.')
       const parts=await readMultipartFormData(event)
       const file=parts?.find(part=>part.name==='file')
       if(!file)throw createError({statusCode:400,statusMessage:'Envie uma imagem PNG, JPEG, GIF ou WebP.'})
@@ -174,14 +179,14 @@ export default defineEventHandler(async(event) => {
     }
     if(path==='/api/notices'&&method==='GET'){
       const notices=(await repo.listNotices(user?.id)).map(sanitizeNotice)
-      return {notices:user?notices:notices.slice(0,3).map(publicNotice),noticeOptions:await repo.getNoticeOptions()}
+      return {notices:notices.map(publicNotice),noticeOptions:await repo.getNoticeOptions()}
     }
     const noticeId=routeId(path,'/api/notices')
     if(noticeId&&method==='GET'){
       const notice=await repo.getNotice(noticeId,user?.id)
       if(!notice)error(404,'Comunicado não encontrado.')
       const safeNotice=sanitizeNotice(notice)
-      return {notice:user?safeNotice:publicNotice(safeNotice),noticeOptions:await repo.getNoticeOptions()}
+      return {notice:publicNotice(safeNotice),noticeOptions:await repo.getNoticeOptions()}
     }
     const acknowledgeId=ackId(path)
     if(acknowledgeId&&method==='POST'){
@@ -189,12 +194,12 @@ export default defineEventHandler(async(event) => {
       if(!await repo.acknowledgeNotice(acknowledgeId,user.id))error(404,'Confirmação não disponível.')
       return {ok:true}
     }
-    if(path==='/api/videos'&&method==='GET'){signedIn(user);return {videos:await repo.listVideos()}}
-    if(path==='/api/links'&&method==='GET'){signedIn(user);return {links:await repo.listLinks()}}
+    if(path==='/api/videos'&&method==='GET')return {videos:(await repo.listVideos()).map(sanitizeVideo)}
+    if(path==='/api/links'&&method==='GET')return {links:(await repo.listLinks()).map(sanitizeLink)}
     if(path==='/api/admin/overview'&&method==='GET'){
       signedIn(user)
-      if(!['notices','videos','releases','links'].some(x=>hasPermission(user,x)))error(403,'Sem permissão editorial.')
-      const [notices,videos,releases,links]=await Promise.all([repo.listNotices(user.id,true),repo.listVideos(),repo.listReleases(true),repo.listLinks(true)])
+      if(!(['notices','videos','releases','links'] as const).some(x=>hasPermission(user,x)))error(403,'Sem permissão editorial.')
+      const [notices,videos,releases,links]=await Promise.all([repo.listNotices(user.id,true),repo.listVideos(true),repo.listReleases(true),repo.listLinks(true)])
       return {overview:{notices:notices.length,notice_drafts:notices.filter((n:any)=>n.status==='draft'&&!n.archived_at).length,videos:videos.length,releases:releases.filter((r:any)=>!r.archived_at).length,links:links.filter((l:any)=>!l.archived_at).length}}
     }
     if(path==='/api/admin/notices'){
@@ -230,7 +235,7 @@ export default defineEventHandler(async(event) => {
     }
     if(path==='/api/admin/videos'){
       allowed(user,'videos')
-      if(method==='GET')return {videos:await repo.listVideos()}
+      if(method==='GET')return {videos:(await repo.listVideos(true)).map(sanitizeVideo)}
       if(method==='POST')return {video:await repo.createVideo({...videoInput(await body(event)),author_name:user.name})}
     }
     const videoId=routeId(path,'/api/admin/videos')
@@ -244,7 +249,7 @@ export default defineEventHandler(async(event) => {
     }
     if(path==='/api/admin/releases'){
       allowed(user,'releases')
-      if(method==='GET')return {releases:await repo.listReleases(true)}
+      if(method==='GET')return {releases:(await repo.listReleases(true)).map(sanitizeRelease)}
       if(method==='POST')return {release:await repo.createRelease(releaseInput(await body(event)))}
     }
     const releaseId=routeId(path,'/api/admin/releases')
@@ -254,8 +259,20 @@ export default defineEventHandler(async(event) => {
     }
     if(path==='/api/admin/links'){
       allowed(user,'links')
-      if(method==='GET')return {links:await repo.listLinks(true)}
+      if(method==='GET')return {links:(await repo.listLinks(true)).map(sanitizeLink)}
       if(method==='POST')return {link:await repo.createLink(linkInput(await body(event)))}
+    }
+    if(path==='/api/admin/links/order'&&method==='PATCH'){
+      allowed(user,'links')
+      const v=await body(event)
+      if(!Array.isArray(v.link_ids)||v.link_ids.length>10000||v.link_ids.some((id:any)=>typeof id!=='string'||!uuidPattern.test(id)))error(400,'Lista de links inválida.')
+      const ids=v.link_ids as string[]
+      if(new Set(ids).size!==ids.length)error(400,'A lista contém links repetidos.')
+      const existing=await repo.listLinks(true)
+      const existingIds=new Set(existing.map((link:any)=>link.id))
+      if(ids.length!==existingIds.size||ids.some(id=>!existingIds.has(id)))error(409,'A lista de links mudou. Atualize a página e tente novamente.')
+      if(!await repo.reorderLinks(ids))error(409,'Não foi possível salvar a nova ordem dos links.')
+      return {ok:true}
     }
     const linkId=routeId(path,'/api/admin/links')
     if(linkId){allowed(user,'links')

@@ -11,6 +11,7 @@ import type {
 } from "../../shared/types";
 import { onBeforeRouteLeave } from "vue-router";
 import { noticePlainText } from "#shared/utils/notice-content";
+import AdminDataGrid from "../components/admin/AdminDataGrid.vue";
 type Section =
   | "overview"
   | "notices"
@@ -180,9 +181,152 @@ const noticeTableWidth = computed(() =>
 let noticeFilterDebounce: ReturnType<typeof setTimeout> | undefined;
 let optionFilterDebounce: ReturnType<typeof setTimeout> | undefined;
 const form = reactive<Record<string, any>>({});
-const noticeRichTextEditor = ref<{
+const richTextEditor = ref<{
   uploadPendingImages: () => Promise<void>;
 } | null>(null);
+const optionGridRows = computed(() =>
+  noticeOptionList.value.map((option) => ({ id: option.id, label: option.label })),
+);
+const optionGridColumns = [
+  { key: "label", label: "Nome", filter: "set" as const, width: 360 },
+];
+const optionGridStorageKey = computed(
+  () => `operacao-notice-options-${noticeTab.value}`,
+);
+const gridFilteredCount = ref(0);
+const contentGridColumns = computed(() => {
+  if (current.value === "users")
+    return [
+      {
+        key: "name",
+        label: "Nome",
+        filter: "text" as const,
+        filterValue: (row: Record<string, any>) =>
+          `${row.name || ""} ${row.email || ""}`,
+        width: 240,
+      },
+      { key: "role", label: "Perfil", filter: "set" as const, width: 150 },
+      {
+        key: "status",
+        label: "Status",
+        filter: "set" as const,
+        value: (row: Record<string, any>) =>
+          row.active === false ? "Bloqueado" : "Habilitado",
+        width: 140,
+      },
+      {
+        key: "created_at",
+        label: "Cadastro",
+        filter: "text" as const,
+        sortType: "date" as const,
+        sortValue: (row: Record<string, any>) => row.created_at,
+        value: (row: Record<string, any>) => formatNoticeDate(row.created_at),
+      },
+    ];
+  if (current.value === "notices")
+    return [
+      {
+        key: "title",
+        label: "Título",
+        filter: "set" as const,
+        width: 290,
+        filterValue: (row: Record<string, any>) =>
+          `${row.title || ""} ${noticePlainText(row.body || "")}`,
+      },
+      {
+        key: "category",
+        label: "Categoria",
+        filter: "set" as const,
+        width: 180,
+        value: (row: Record<string, any>) =>
+          noticeOptions.value.categories.find(
+            (option) => option.id === row.category,
+          )?.label || row.category,
+      },
+      {
+        key: "status",
+        label: "Status",
+        filter: "set" as const,
+        width: 140,
+        value: (row: Record<string, any>) => stateLabel(row),
+      },
+      {
+        key: "published_at",
+        label: "Publicação",
+        filter: "set" as const,
+        sortType: "date" as const,
+        sortValue: (row: Record<string, any>) => row.published_at,
+        width: 170,
+        value: (row: Record<string, any>) => formatNoticeDate(row.published_at),
+      },
+    ];
+  if (current.value === "videos")
+    return [
+      { key: "title", label: "Título", filter: "text" as const },
+      { key: "category", label: "Categoria", filter: "set" as const },
+      {
+        key: "status",
+        label: "Status",
+        filter: "set" as const,
+        value: (row: Record<string, any>) => stateLabel(row),
+      },
+      {
+        key: "published_at",
+        label: "Publicação",
+        filter: "text" as const,
+        sortType: "date" as const,
+        sortValue: (row: Record<string, any>) => row.published_at,
+        value: (row: Record<string, any>) => formatNoticeDate(row.published_at),
+      },
+    ];
+  if (current.value === "releases")
+    return [
+      { key: "title", label: "Título", filter: "text" as const },
+      { key: "product", label: "Produto", filter: "set" as const },
+      {
+        key: "status",
+        label: "Status",
+        filter: "set" as const,
+        value: (row: Record<string, any>) => stateLabel(row),
+      },
+      {
+        key: "published_at",
+        label: "Data",
+        filter: "text" as const,
+        sortType: "date" as const,
+        sortValue: (row: Record<string, any>) => row.published_at,
+        value: (row: Record<string, any>) => formatNoticeDate(row.published_at),
+      },
+    ];
+  return [
+    { key: "title", label: "Título", filter: "text" as const },
+    { key: "category", label: "Categoria", filter: "set" as const },
+    {
+      key: "status",
+      label: "Status",
+      filter: "set" as const,
+      value: (row: Record<string, any>) => stateLabel(row),
+    },
+    {
+      key: "created_at",
+      label: "Cadastro",
+      filter: "text" as const,
+      sortType: "date" as const,
+      sortValue: (row: Record<string, any>) => row.created_at,
+      value: (row: Record<string, any>) => formatNoticeDate(row.created_at),
+    },
+  ];
+});
+const contentGridStorageKey = computed(() => `operacao-${current.value}`);
+const usesContentGrid = computed(() =>
+  ["videos", "releases", "links"].includes(current.value),
+);
+const usesAdminGrid = computed(
+  () =>
+    current.value === "users" ||
+    current.value === "notices" ||
+    usesContentGrid.value,
+);
 const formSnapshot = ref("");
 const hasUnsavedFormChanges = computed(
   () =>
@@ -880,6 +1024,8 @@ const defaults: Record<string, () => Record<string, any>> = {
     description: "",
     category: "Treinamento",
     url: "",
+    status: "published",
+    published_at: "",
   }),
   releases: () => ({
     title: "",
@@ -940,7 +1086,13 @@ function applyUserProfileDefaults() {
 function editRecord(item: Record<string, any>) {
   clearForm();
   Object.assign(form, JSON.parse(JSON.stringify(item)));
-  if (current.value === "videos") form.url = item.external_url || "";
+  if (current.value === "videos") {
+    form.url = item.external_url || "";
+    form.status = item.status || "published";
+    form.published_at = item.published_at
+      ? new Date(item.published_at).toISOString().slice(0, 10)
+      : "";
+  }
   if (current.value === "users") {
     form.password = "";
     form.active = item.active !== false;
@@ -1124,8 +1276,8 @@ async function save() {
   }
   busy.value = true;
   try {
-    if (current.value === "notices")
-      await noticeRichTextEditor.value?.uploadPendingImages();
+    if (["notices", "videos", "releases", "links"].includes(current.value))
+      await richTextEditor.value?.uploadPendingImages();
     const key = colMap[current.value];
     const url = editing.value
       ? `/api/admin/${key}/${form.id}`
@@ -1168,6 +1320,60 @@ async function archive(item: any) {
     await load();
   } catch (e) {
     error.value = apiMessage(e);
+  }
+}
+async function saveLinkOrder(ids: string[]) {
+  if (current.value !== "links" || !isAdmin.value) return;
+  const previous = [...(records.value.links || [])];
+  const byId = new Map(previous.map((item) => [item.id, item]));
+  records.value.links = ids.map((id, index) => ({
+    ...byId.get(id),
+    display_order: index + 1,
+  }));
+  error.value = "";
+  try {
+    await $fetch("/api/admin/links/order", {
+      method: "PATCH",
+      body: { link_ids: ids },
+    });
+    success.value = "Ordem dos links salva.";
+  } catch (cause) {
+    records.value.links = previous;
+    error.value = apiMessage(cause);
+  }
+}
+async function saveAdminGridOrder(ids: string[]) {
+  if (current.value === "links") {
+    await saveLinkOrder(ids);
+    return;
+  }
+  if (current.value !== "notices" || !isAdmin.value || savingManualOrder.value)
+    return;
+
+  const previous = [...(records.value.notices || [])];
+  const byId = new Map(previous.map((notice) => [String(notice.id), notice]));
+  if (ids.length !== previous.length || ids.some((id) => !byId.has(id))) {
+    error.value = "Não foi possível ordenar os comunicados carregados.";
+    return;
+  }
+  records.value.notices = ids.map((id, index) => ({
+    ...byId.get(id),
+    display_order: index + 1,
+  }));
+  savingManualOrder.value = true;
+  error.value = "";
+  success.value = "";
+  try {
+    await $fetch("/api/admin/notices/order", {
+      method: "PATCH",
+      body: { notice_ids: ids },
+    });
+    success.value = "Ordem dos comunicados salva.";
+  } catch (cause) {
+    records.value.notices = previous;
+    error.value = apiMessage(cause);
+  } finally {
+    savingManualOrder.value = false;
   }
 }
 async function saveSettings() {
@@ -1294,7 +1500,7 @@ function formatNoticeDate(value?: string | null) {
     <div v-if="!ready" class="empty">Verificando permissões...</div>
     <div v-else-if="!canOpen" class="panel panel-pad">
       <h1>Portal da Operação</h1>
-      <p class="muted" style="font-size: 13px">
+      <p class="muted text-[13px]">
         Somente usuários com perfil ativo e permissão editorial podem acessar
         este painel.
       </p>
@@ -1302,13 +1508,25 @@ function formatNoticeDate(value?: string | null) {
         >Acessar minha conta</NuxtLink
       >
     </div>
-    <div v-else class="operate">
-      <aside class="admin-sidebar">
+    <div
+      v-else
+      class="operate grid grid-cols-[225px_minmax(0,1fr)] items-start gap-[26px] max-[850px]:grid-cols-1"
+    >
+      <aside
+        class="admin-sidebar sticky top-[108px] rounded-[18px] border border-brand-border bg-white p-[15px] max-[850px]:static max-[850px]:flex max-[850px]:flex-wrap max-[850px]:gap-[5px]"
+      >
         <p class="side-head">Portal da Operação</p>
         <button
           v-for="item in visibleSections"
           :key="item.id"
-          :class="['side-link', { active: current === item.id }]"
+          :class="[
+            'side-link flex w-full items-center gap-[10px] rounded-[10px] border-0 p-3 text-left text-[13px] font-bold max-[850px]:w-auto max-[850px]:px-3 max-[850px]:py-[10px]',
+            {
+              active: current === item.id,
+              'bg-transparent text-[#7d748c]': current !== item.id,
+              'bg-[#f2ecfd] text-brand': current === item.id,
+            },
+          ]"
           type="button"
           @click="choose(item.id)"
         >
@@ -1320,8 +1538,10 @@ function formatNoticeDate(value?: string | null) {
           ><br />{{ session.user.value?.role }}
         </div>
       </aside>
-      <section class="admin-body">
-        <div class="admin-header">
+      <section class="admin-body min-w-0">
+        <div
+          class="admin-header mb-[22px] flex items-center justify-between gap-[10px]"
+        >
           <div>
             <div class="eyebrow">Painel de gestão</div>
             <h1>{{ activeLabel }}</h1>
@@ -1351,10 +1571,9 @@ function formatNoticeDate(value?: string | null) {
         <div v-if="success" role="status" class="success">✓ {{ success }}</div>
         <div
           v-if="current === 'notices'"
-          class="user-subtabs notice-subtabs"
+          class="user-subtabs notice-subtabs flex gap-2 pb-5"
           role="tablist"
           aria-label="Seções de comunicados"
-          style="display: flex; gap: 8px; padding-bottom: 20px"
         >
           <button
             v-for="item in [
@@ -1373,7 +1592,9 @@ function formatNoticeDate(value?: string | null) {
           </button>
         </div>
         <template v-if="current === 'overview'"
-          ><div class="stats-cards">
+          ><div
+            class="stats-cards grid grid-cols-4 gap-[14px] max-[850px]:grid-cols-2 max-[620px]:gap-[9px]"
+          >
             <div
               v-for="s in [
                 { key: 'notices', label: 'Comunicados' },
@@ -1382,17 +1603,21 @@ function formatNoticeDate(value?: string | null) {
                 { key: 'links', label: 'Links úteis' },
               ]"
               :key="s.key"
-              class="metric"
+              class="metric rounded-[15px] border border-brand-border bg-white p-[23px] max-[850px]:p-4"
             >
-              <strong>{{ overview[s.key as keyof typeof overview] }}</strong
-              ><span>{{ s.label }}</span>
+              <strong
+                class="block font-display text-[32px] font-extrabold text-[#5f2daa] max-[850px]:text-[27px]"
+                >{{ overview[s.key as keyof typeof overview] }}</strong
+              ><span class="text-xs font-bold text-[#8a8295]">{{
+                s.label
+              }}</span>
             </div>
           </div>
-          <div class="panel panel-pad" style="margin-top: 22px">
-            <h2 style="font-size: 19px">
+          <div class="panel panel-pad mt-[22px]">
+            <h2 class="text-[19px]">
               Gerencie a comunicação da sua equipe
             </h2>
-            <p class="muted" style="font-size: 13px">
+            <p class="muted text-[13px]">
               Utilize o menu lateral para publicar avisos, acompanhar conteúdos
               e gerenciar o acesso dos usuários habilitados.
             </p>
@@ -1469,8 +1694,11 @@ function formatNoticeDate(value?: string | null) {
                 </p>
               </div>
             </div>
-            <form class="notice-option-form" @submit.prevent="saveNoticeOption">
-              <div class="field">
+            <form
+              class="notice-option-form my-[18px] flex w-full items-end gap-[14px] max-[600px]:flex-col max-[600px]:items-stretch"
+              @submit.prevent="saveNoticeOption"
+            >
+              <div class="field flex-1">
                 <label for="notice_option_label">
                   {{
                     noticeTab === "categories"
@@ -1490,7 +1718,7 @@ function formatNoticeDate(value?: string | null) {
                   "
                 />
               </div>
-              <div class="actions">
+              <div class="actions flex justify-end gap-2">
                 <button class="btn btn-primary" type="submit" :disabled="busy">
                   {{
                     busy
@@ -1510,241 +1738,82 @@ function formatNoticeDate(value?: string | null) {
                 </button>
               </div>
             </form>
-            <div v-if="!noticeOptionList.length" class="empty">
+            <div v-if="!optionGridRows.length" class="empty">
               Nenhuma opção cadastrada.
             </div>
-            <div
-              v-else-if="!filteredSortedNoticeOptions.length"
-              class="empty"
+            <AdminDataGrid
+              v-else
+              :key="noticeTab"
+              :rows="optionGridRows"
+              :columns="optionGridColumns"
+              :storage-key="optionGridStorageKey"
             >
-              Nenhuma opção corresponde ao filtro.
-            </div>
-            <template v-else>
-              <div class="record-table option-record-table">
-                <table
-                  class="records"
-                  :style="{
-                    width: '100%',
-                    tableLayout: 'fixed',
-                  }"
-                >
-                  <colgroup>
-                    <col
-                      :style="{
-                        width: `${(optionColumnWidths.label / optionTableWidth) * 100}%`,
-                      }"
-                    />
-                    <col
-                      :style="{
-                        width: `${(optionColumnWidths.actions / optionTableWidth) * 100}%`,
-                      }"
-                    />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th
-                        :class="{
-                          'sorted-column': optionTable.sortBy === 'label',
-                          'set-filter-open':
-                            openSetFilter === noticeOptionFilterKey,
-                        }"
-                        :aria-sort="
-                          optionTable.sortBy === 'label'
-                            ? optionTable.sortDirection === 'asc'
-                              ? 'ascending'
-                              : 'descending'
-                            : 'none'
-                        "
-                      >
-                        <div class="filterable-heading">
-                          <button
-                            class="sortable-heading"
-                            type="button"
-                            @click="sortNoticeOptionsBy('label')"
-                          >
-                            Nome{{ optionSortIndicator("label") }}
-                          </button>
-                          <SetFilterPopover
-                            :id="noticeOptionFilterKey"
-                            :label="noticeTab === 'categories' ? 'Categoria' : 'Prioridade'"
-                            :options="noticeOptionFilterOptions"
-                            :model-value="
-                              setFilterSelections[noticeOptionFilterKey]
-                            "
-                            :open="openSetFilter === noticeOptionFilterKey"
-                            :active="
-                              isSetFilterActive(
-                                noticeOptionFilterKey,
-                                noticeOptionFilterOptions,
-                              )
-                            "
-                            @toggle="toggleSetFilter(noticeOptionFilterKey)"
-                            @update:model-value="
-                              updateSetFilter(noticeOptionFilterKey, $event)
-                            "
-                          />
-                        </div>
-                        <span
-                          class="notice-column-resizer"
-                          role="separator"
-                          aria-orientation="vertical"
-                          aria-label="Redimensionar coluna Nome"
-                          tabindex="0"
-                          title="Arraste para redimensionar; duplo clique para restaurar"
-                          @pointerdown="
-                            startOptionColumnResize($event, 'label')
-                          "
-                          @pointermove="resizeOptionColumn"
-                          @pointerup="finishOptionColumnResize"
-                          @pointercancel="finishOptionColumnResize"
-                          @dblclick="resetOptionColumnWidth('label')"
-                          @keydown="
-                            handleOptionResizeKeydown($event, 'label')
-                          "
-                        />
-                      </th>
-                      <th style="text-align: right">
-                        <span
-                          class="notice-column-resizer"
-                          role="separator"
-                          aria-orientation="vertical"
-                          aria-label="Redimensionar coluna Ações"
-                          tabindex="0"
-                          title="Arraste para redimensionar; duplo clique para restaurar"
-                          @pointerdown="
-                            startOptionColumnResize($event, 'actions')
-                          "
-                          @pointermove="resizeOptionColumn"
-                          @pointerup="finishOptionColumnResize"
-                          @pointercancel="finishOptionColumnResize"
-                          @dblclick="resetOptionColumnWidth('actions')"
-                          @keydown="
-                            handleOptionResizeKeydown($event, 'actions')
-                          "
-                        />
-                      </th>
-                    </tr>
-                    <tr class="notice-filter-row">
-                      <th>
-                        <input
-                          v-model="optionTable.filters.label"
-                          class="notice-table-filter"
-                          type="search"
-                          aria-label="Filtrar opções pelo nome"
-                          placeholder="Filtrar..."
-                        />
-                      </th>
-                      <th>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="option in paginatedNoticeOptions" :key="option.id">
-                      <td>{{ option.label }}</td>
-                      <td>
-                        <div class="actions record-actions">
-                          <button
-                            class="record-icon-button edit-action"
-                            type="button"
-                            aria-label="Editar opção"
-                            title="Editar"
-                            :disabled="busy"
-                            @click="editNoticeOption(option)"
-                          >
-                            <svg
-                              aria-hidden="true"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                            >
-                              <path
-                                d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"
-                              />
-                            </svg>
-                          </button>
-                          <button
-                            class="record-icon-button archive-action"
-                            type="button"
-                            aria-label="Remover opção"
-                            title="Remover"
-                            :disabled="busy || noticeOptionList.length <= 1"
-                            @click="removeNoticeOption(option)"
-                          >
-                            <svg
-                              aria-hidden="true"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                            >
-                              <path
-                                d="M3 7h18M5 7l1 14h12l1-14M9 7V4h6v3m-5 4v6m4-6v6"
-                              />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </template>
-            <div class="option-grid-footer">
-              <button
-                v-if="hasNoticeOptionFilters"
-                class="btn btn-secondary btn-small"
-                type="button"
-                @click="clearNoticeOptionFilters"
-              >
-                Limpar filtros
-              </button>
-              <label class="notice-page-size">
-                Itens por página
-                <select
-                  v-model.number="optionTable.pageSize"
-                  @change="optionTable.page = 1"
-                >
-                  <option :value="10">10</option>
-                  <option :value="25">25</option>
-                  <option :value="50">50</option>
-                </select>
-              </label>
-              <span>
-                {{ filteredSortedNoticeOptions.length }} opção(ões) · Página
-                {{ optionTable.page }} de {{ optionPageCount }}
-              </span>
-              <div class="notice-pagination-actions">
-                <button
-                  class="btn btn-secondary btn-small"
-                  type="button"
-                  :disabled="optionTable.page <= 1"
-                  @click="optionTable.page--"
-                >
-                  Anterior
-                </button>
-                <button
-                  class="btn btn-secondary btn-small"
-                  type="button"
-                  :disabled="optionTable.page >= optionPageCount"
-                  @click="optionTable.page++"
-                >
-                  Próxima
-                </button>
-              </div>
-            </div>
+              <template #actions="{ row }">
+                <div class="actions record-actions">
+                  <button
+                    class="record-icon-button edit-action"
+                    type="button"
+                    aria-label="Editar opção"
+                    title="Editar"
+                    :disabled="busy"
+                    @click="
+                      editNoticeOption({
+                        id: String(row.id),
+                        label: String(row.label),
+                      })
+                    "
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path
+                        d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    class="record-icon-button archive-action"
+                    type="button"
+                    aria-label="Remover opção"
+                    title="Remover"
+                    :disabled="busy || noticeOptionList.length <= 1"
+                    @click="
+                      removeNoticeOption({
+                        id: String(row.id),
+                        label: String(row.label),
+                      })
+                    "
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path
+                        d="M3 7h18M5 7l1 14h12l1-14M9 7V4h6v3m-5 4v6m4-6v6"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </template>
+            </AdminDataGrid>
           </section>
           <template v-else>
             <div
               v-if="current === 'users'"
-              class="user-subtabs"
+              class="user-subtabs flex gap-2 pb-5"
               role="tablist"
               aria-label="Seção de usuários"
-              style="display: flex; gap: 8px; padding-bottom: 20px"
             >
               <button
                 :class="['filter-chip', { active: userTab === 'accounts' }]"
@@ -1811,8 +1880,7 @@ function formatNoticeDate(value?: string | null) {
             <template v-else>
               <div
                 v-if="showEditor"
-                class="panel panel-pad"
-                style="margin-bottom: 22px"
+                class="panel panel-pad mb-[22px]"
               >
                 <div class="editor-heading">
                   <h2>
@@ -1896,12 +1964,7 @@ function formatNoticeDate(value?: string | null) {
                     </div>
                     <div class="full">
                       <div
-                        class="label"
-                        style="
-                          font-size: 12px;
-                          font-weight: 800;
-                          margin-bottom: 10px;
-                        "
+                        class="label mb-[10px] text-xs font-extrabold"
                       >
                         Permissões de publicação
                       </div>
@@ -1935,29 +1998,15 @@ function formatNoticeDate(value?: string | null) {
                         required
                       />
                     </div>
-                    <div class="field full">
-                      <label for="notice_body_editor">Conteúdo</label>
-                      <ClientOnly>
-                        <NoticeRichTextEditor
-                          ref="noticeRichTextEditor"
-                          v-model="form.body"
-                          id="notice_body_editor"
-                        />
-                        <template #fallback>
-                          <textarea
-                            id="notice_body_editor"
-                            v-model="form.body"
-                            rows="8"
-                            required
-                            aria-label="Conteúdo do comunicado"
-                          />
-                        </template>
-                      </ClientOnly>
-                      <p class="form-help">
-                        Use a barra de ferramentas para formatar o texto,
-                        inserir imagens, vídeos, links e tabelas.
-                      </p>
-                    </div>
+                    <AdminRichTextField
+                      ref="richTextEditor"
+                      v-model="form.body"
+                      id="notice_body_editor"
+                      label="Conteúdo"
+                      :fallback-rows="8"
+                      required
+                      help-text="Use a barra de ferramentas para formatar o texto, inserir imagens, vídeos, links e tabelas."
+                    />
                     <div class="field">
                       <label for="notice_category">Categoria</label
                       ><select id="notice_category" v-model="form.category">
@@ -2044,14 +2093,28 @@ function formatNoticeDate(value?: string | null) {
                         required
                       />
                     </div>
-                    <div class="field full">
-                      <label for="video_desc">Descrição</label
-                      ><textarea
-                        id="video_desc"
-                        v-model="form.description"
-                        maxlength="1500"
-                        rows="4"
-                      /></div
+                    <div class="field">
+                      <label for="video_status">Status</label
+                      ><select id="video_status" v-model="form.status">
+                        <option value="draft">Rascunho</option>
+                        <option value="published">Publicado</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label for="video_publish">Publicar em (opcional)</label
+                      ><input
+                        id="video_publish"
+                        type="date"
+                        v-model="form.published_at"
+                      />
+                    </div>
+                    <AdminRichTextField
+                      ref="richTextEditor"
+                      v-model="form.description"
+                      id="video_desc"
+                      label="Descrição"
+                      :fallback-rows="4"
+                    />
                   ></template>
                   <template v-if="current === 'releases'"
                     ><div class="field full">
@@ -2080,15 +2143,13 @@ function formatNoticeDate(value?: string | null) {
                         maxlength="60"
                       />
                     </div>
-                    <div class="field full">
-                      <label for="release_summary">Resumo</label
-                      ><textarea
-                        id="release_summary"
-                        v-model="form.summary"
-                        maxlength="1600"
-                        rows="5"
-                      />
-                    </div>
+                    <AdminRichTextField
+                      ref="richTextEditor"
+                      v-model="form.summary"
+                      id="release_summary"
+                      label="Resumo"
+                      :fallback-rows="5"
+                    />
                     <div class="field">
                       <label for="release_url"
                         >Referência HTTPS (opcional)</label
@@ -2145,14 +2206,13 @@ function formatNoticeDate(value?: string | null) {
                         <option value="published">Publicado</option>
                       </select>
                     </div>
-                    <div class="field full">
-                      <label for="link_description">Descrição</label
-                      ><textarea
-                        id="link_description"
-                        v-model="form.description"
-                        maxlength="350"
-                        rows="3"
-                      /></div
+                    <AdminRichTextField
+                      ref="richTextEditor"
+                      v-model="form.description"
+                      id="link_description"
+                      label="Descrição"
+                      :fallback-rows="3"
+                    />
                   ></template>
                   <div class="full form-actions">
                     <button
@@ -2175,44 +2235,113 @@ function formatNoticeDate(value?: string | null) {
                 <div class="editor-heading">
                   <h2>Registros cadastrados</h2>
                   <span class="pill"
-                    >{{
-                      current === "notices"
-                        ? filteredSortedNotices.length
-                        : records[current]?.length || 0
-                    }}
+                    >{{ usesAdminGrid ? gridFilteredCount : records[current]?.length || 0 }}
                     registro(s)</span
                   >
-                  <button
-                    v-if="current === 'notices' && hasNoticeFilters"
-                    class="btn btn-secondary btn-small"
-                    type="button"
-                    @click="clearNoticeFilters"
-                  >
-                    Limpar filtros
-                  </button>
-                  <span
-                    v-if="current === 'notices' && isAdmin"
-                    class="notice-reorder-help"
-                    role="status"
-                  >
-                    {{
-                      noticeTable.sortBy
-                        ? "Limpe a ordenação temporária para reordenar."
-                        : "Arraste pela alça ao lado do título para alterar a ordem."
-                    }}
-                  </span>
                 </div>
                 <div v-if="!records[current]?.length" class="empty">
                   Ainda não há registros nesta seção.
                 </div>
-                <div
-                  v-else-if="
-                    current === 'notices' && !filteredSortedNotices.length
-                  "
-                  class="empty"
+                <AdminDataGrid
+                  v-else-if="usesAdminGrid"
+                  :key="current"
+                  :rows="records[current] || []"
+                  :columns="contentGridColumns"
+                  :storage-key="current === 'notices' ? 'operacao-notices' : contentGridStorageKey"
+                  :reorderable="isAdmin && (current === 'notices' || current === 'links')"
+                  :manual-order-toggle="current !== 'notices'"
+                  @reorder="saveAdminGridOrder"
+                  @filtered-count="gridFilteredCount = $event"
                 >
-                  Nenhum comunicado corresponde aos filtros.
-                </div>
+                  <template v-if="current === 'users'" #cell-name="{ row, value }">
+                    <span>{{ value }}</span>
+                    <div class="form-help">{{ row.email }}</div>
+                  </template>
+                  <template #cell-status="{ row, value }">
+                    <span
+                      v-if="current === 'notices' || current === 'users'"
+                      class="pill muted"
+                      >{{ value }}</span
+                    >
+                    <span v-else class="pill muted">{{ stateLabel(row) }}</span>
+                  </template>
+                  <template
+                    #drag-handle="{ row, canReorder, draggable, onDragStart, onDragEnd }"
+                  >
+                    <button
+                      v-if="current === 'notices'"
+                      class="notice-drag-handle"
+                      type="button"
+                      :disabled="savingManualOrder || !canReorder"
+                      :draggable="draggable"
+                      :aria-label="`Arrastar comunicado ${row.title}`"
+                      title="Arraste para alterar a posição"
+                      @dragstart="onDragStart($event)"
+                      @dragend="onDragEnd()"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                      >
+                        <circle cx="8" cy="5" r="1.5" />
+                        <circle cx="16" cy="5" r="1.5" />
+                        <circle cx="8" cy="12" r="1.5" />
+                        <circle cx="16" cy="12" r="1.5" />
+                        <circle cx="8" cy="19" r="1.5" />
+                        <circle cx="16" cy="19" r="1.5" />
+                      </svg>
+                    </button>
+                  </template>
+                  <template #actions="{ row }">
+                    <div class="actions record-actions">
+                      <button
+                        class="record-icon-button edit-action"
+                        type="button"
+                        aria-label="Editar registro"
+                        title="Editar"
+                        @click="editRecord(row)"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path
+                            d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        v-if="current !== 'users'"
+                        class="record-icon-button archive-action"
+                        :class="{ 'delete-action': current === 'videos' }"
+                        type="button"
+                        :aria-label="current === 'videos' ? 'Excluir registro' : 'Arquivar registro'"
+                        :title="current === 'videos' ? 'Excluir' : 'Arquivar'"
+                        @click="archive(row)"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path
+                            d="M3 7h18M5 7l1 14h12l1-14M9 7V4h6v3m-5 4v6m4-6v6"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  </template>
+                </AdminDataGrid>
                 <div
                   v-else
                   :class="[
@@ -2391,7 +2520,7 @@ function formatNoticeDate(value?: string | null) {
                             "
                           />
                         </th>
-                        <th style="text-align: right">
+                        <th class="text-right">
                           <span
                             class="notice-column-resizer"
                             role="separator"
@@ -2574,7 +2703,7 @@ function formatNoticeDate(value?: string | null) {
                           }}
                         </th>
                         <th>Status</th>
-                        <th style="text-align: right">Ações</th>
+                        <th class="text-right">Ações</th>
                       </tr>
                     </thead>
                     <TransitionGroup name="notice-row-transition" tag="tbody">
@@ -2746,43 +2875,6 @@ function formatNoticeDate(value?: string | null) {
                     </TransitionGroup>
                   </table>
                 </div>
-                <div
-                  v-if="current === 'notices'"
-                  class="notice-pagination"
-                >
-                  <label class="notice-page-size">
-                    Itens por página
-                    <select
-                      v-model.number="noticeTable.pageSize"
-                      @change="noticeTable.page = 1"
-                    >
-                      <option :value="10">10</option>
-                      <option :value="25">25</option>
-                      <option :value="50">50</option>
-                    </select>
-                  </label>
-                  <span>
-                    Página {{ noticeTable.page }} de {{ noticePageCount }}
-                  </span>
-                  <div class="notice-pagination-actions">
-                    <button
-                      class="btn btn-secondary btn-small"
-                      type="button"
-                      :disabled="noticeTable.page <= 1"
-                      @click="noticeTable.page--"
-                    >
-                      Anterior
-                    </button>
-                    <button
-                      class="btn btn-secondary btn-small"
-                      type="button"
-                      :disabled="noticeTable.page >= noticePageCount"
-                      @click="noticeTable.page++"
-                    >
-                      Próxima
-                    </button>
-                  </div>
-                </div>
               </div>
             </template>
           </template>
@@ -2794,49 +2886,29 @@ function formatNoticeDate(value?: string | null) {
 
 <style scoped>
 .profile-card + .profile-card {
-  margin-top: 18px;
+  @apply mt-[18px];
 }
 .notice-options-panel {
-  margin-bottom: 22px;
-  font-size: 13px;
+  @apply mb-[22px] text-[13px];
 }
 .notice-subtabs .filter-chip {
-  font-size: 13px;
+  @apply text-[13px];
 }
 .notice-options-panel .field label,
 .notice-options-panel .btn {
-  font-size: 13px;
+  @apply text-[13px];
 }
 .notice-option-form {
-  display: flex;
-  align-items: end;
-  gap: 14px;
-  margin: 18px 0;
-  width: 100%;
+  @apply my-[18px] flex w-full items-end gap-[14px];
 }
 .notice-option-form .field {
-  flex: 1;
+  @apply flex-1;
 }
 .notice-option-form .actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  @apply flex justify-end gap-2;
 }
 .sortable-heading {
-  display: block;
-  width: 100%;
-  height: 24px;
-  margin: 0 auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 24px;
-  text-align: center;
-  white-space: nowrap;
+  @apply mx-auto block h-6 w-full border-0 bg-transparent p-0 text-center font-[inherit] text-xs font-semibold leading-6 text-[inherit] whitespace-nowrap;
 }
 .sortable-heading:hover {
   color: var(--purple);
@@ -2845,14 +2917,11 @@ function formatNoticeDate(value?: string | null) {
   cursor: default;
 }
 .filterable-heading {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
+  @apply flex min-w-0 items-center gap-1;
 }
 .notice-record-table th.set-filter-open,
 .option-record-table th.set-filter-open {
-  z-index: 20;
+  @apply z-20;
 }
 .notice-record-table th[aria-sort="ascending"],
 .notice-record-table th[aria-sort="descending"] {
@@ -2865,108 +2934,65 @@ function formatNoticeDate(value?: string | null) {
   color: var(--purple-dark);
 }
 .notice-record-table {
-  overflow-x: clip;
-  width: 100%;
+  @apply w-full overflow-x-clip;
 }
 .notice-record-table .records {
-  width: 100%;
+  @apply w-full;
 }
 .notice-record-table thead tr:first-child th,
 .option-record-table thead tr:first-child th,
 .notice-record-table thead tr.notice-filter-row th {
-  box-sizing: border-box;
-  height: 36px;
-  padding: 6px 12px;
-  vertical-align: middle;
+  @apply box-border h-9 px-3 py-[6px] align-middle;
 }
 .notice-record-table thead {
-  background: #f3f0f7;
+  @apply bg-[#f3f0f7];
 }
 .notice-record-table thead tr:first-child th {
-  background: #f3f0f7;
-  color: var(--ink);
-  line-height: 24px;
+  @apply bg-[#f3f0f7] text-[var(--ink)] leading-6;
 }
 .notice-record-table thead tr.notice-filter-row th {
-  background: #f8f6fb;
-  border-top: 1px solid var(--border);
-  line-height: normal;
+  @apply border-t border-[var(--border)] bg-[#f8f6fb] leading-normal;
 }
 .notice-record-table thead tr:first-child th[aria-sort="ascending"],
 .notice-record-table thead tr:first-child th[aria-sort="descending"] {
-  background: #e9e0f3;
-  color: var(--purple-dark);
+  @apply bg-[#e9e0f3] text-[var(--purple-dark)];
 }
 .option-record-table thead {
-  background: #f3f0f7;
+  @apply bg-[#f3f0f7];
 }
 .option-record-table thead tr:first-child th {
-  background: #f3f0f7;
-  color: var(--ink);
-  line-height: 24px;
+  @apply bg-[#f3f0f7] text-[var(--ink)] leading-6;
 }
 .option-record-table thead tr.notice-filter-row th {
-  background: #f8f6fb;
-  border-top: 1px solid var(--border);
-  line-height: normal;
+  @apply border-t border-[var(--border)] bg-[#f8f6fb] leading-normal;
 }
 .option-record-table thead tr:first-child th[aria-sort="ascending"],
 .option-record-table thead tr:first-child th[aria-sort="descending"] {
-  background: #e9e0f3;
-  color: var(--purple-dark);
+  @apply bg-[#e9e0f3] text-[var(--purple-dark)];
 }
 .notice-filter-control {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  height: 24px;
-  align-items: center;
-  gap: 12px;
-  box-sizing: border-box;
+  @apply box-border flex h-6 w-full min-w-0 items-center gap-3;
 }
 .notice-filter-control .notice-table-filter {
-  flex: 1 1 0;
-  width: 100%;
-  min-width: 0;
-  height: 24px;
-  margin: 0;
-  padding: 3px 8px;
-  box-sizing: border-box;
+  @apply box-border h-6 w-full min-w-0 flex-[1_1_0] m-0 px-2 py-[3px];
 }
 .notice-filter-control .set-filter-popover {
-  flex: 0 0 16px;
-  width: 16px;
-  height: 24px;
+  @apply h-6 w-4 flex-[0_0_16px];
 }
 .notice-record-table tbody td:first-child {
-  overflow-wrap: anywhere;
+  @apply break-words;
 }
 .notice-record-table .notice-title-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  @apply flex items-center gap-2;
 }
 .notice-record-table .notice-title-cell > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
+  @apply min-w-0 break-words;
 }
 .notice-drag-handle {
-  display: inline-grid;
-  flex: 0 0 24px;
-  width: 24px;
-  height: 30px;
-  padding: 3px;
-  place-items: center;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #806a98;
-  cursor: grab;
-  touch-action: none;
+  @apply relative inline-grid h-[30px] w-6 flex-[0_0_24px] place-items-center rounded-[5px] border-0 bg-transparent p-[3px] text-[#806a98] cursor-grab touch-none;
 }
 .notice-drag-handle svg {
-  width: 18px;
-  height: 18px;
+  @apply h-[18px] w-[18px];
 }
 .notice-drag-handle:hover:not(:disabled) {
   background: #f3edfc;
@@ -2979,16 +3005,13 @@ function formatNoticeDate(value?: string | null) {
   cursor: not-allowed;
 }
 .notice-reorder-help {
-  color: var(--muted);
-  font-size: 12px;
+  @apply text-[var(--muted)] text-xs;
 }
 .notice-row-transition-move {
-  transition: transform 180ms ease;
+  @apply transition-transform duration-[180ms] ease-in-out;
 }
 .notice-record-table tr.notice-row-dragging {
-  opacity: 0.5;
-  background: #f3edfc;
-  cursor: grabbing;
+  @apply cursor-grabbing bg-[#f3edfc] opacity-50;
 }
 .notice-record-table tr.notice-row-dragging .notice-drag-handle {
   cursor: grabbing;
@@ -3000,70 +3023,46 @@ function formatNoticeDate(value?: string | null) {
   border-bottom: 2px solid var(--purple);
 }
 .option-record-table {
-  overflow-x: clip;
-  width: 100%;
+  @apply w-full overflow-x-clip;
 }
 .option-record-table .records {
-  width: 100%;
+  @apply w-full;
 }
 .option-record-table tbody td:first-child {
-  overflow-wrap: anywhere;
+  @apply break-words;
 }
 .option-record-table tbody tr {
-  height: 64px;
+  @apply h-16;
 }
 .option-record-table tbody td {
-  vertical-align: bottom;
+  @apply align-bottom;
 }
 .option-record-table tbody td:last-child {
-  text-align: right;
+  @apply text-right;
 }
 .option-record-table .record-actions {
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  min-height: 34px;
+  @apply flex min-h-[34px] items-end justify-end;
 }
 .option-grid-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 16px;
-  margin-top: 16px;
-  font-size: 13px;
+  @apply mt-4 flex items-center justify-end gap-4 text-[13px];
 }
 .notice-record-table td:last-child,
 .option-record-table td:last-child {
-  vertical-align: bottom;
+  @apply align-bottom;
 }
 .notice-record-table .record-actions,
 .option-record-table .record-actions {
-  align-items: flex-end;
-  justify-content: flex-end;
+  @apply items-end justify-end;
 }
 .notice-record-table thead tr:first-child th,
 .option-record-table thead tr:first-child th {
-  position: relative;
+  @apply relative;
 }
 .notice-column-resizer {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  right: -5px;
-  width: 10px;
-  height: 100%;
-  cursor: col-resize;
-  touch-action: none;
-  user-select: none;
+  @apply absolute top-0 right-[-5px] z-[2] h-full w-[10px] cursor-col-resize touch-none select-none;
 }
 .notice-column-resizer::after {
-  position: absolute;
-  top: 20%;
-  right: 4px;
-  width: 2px;
-  height: 60%;
-  border-radius: 2px;
-  background: transparent;
+  @apply absolute top-[20%] right-1 h-[60%] w-[2px] rounded-sm bg-transparent;
   content: "";
 }
 .notice-column-resizer:hover::after,
@@ -3071,78 +3070,38 @@ function formatNoticeDate(value?: string | null) {
   background: var(--purple);
 }
 .notice-column-resizer:focus-visible {
-  outline: none;
+  @apply outline-none;
 }
 .notice-filter-row th {
-  box-sizing: border-box;
-  height: 36px;
-  padding: 6px 12px;
-  vertical-align: middle;
+  @apply box-border h-9 px-3 py-[6px] align-middle;
 }
 .notice-table-filter {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  margin-top: 8px;
-  padding: 7px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-  font: inherit;
-  font-size: 13px;
-  opacity: 1;
+  @apply mt-2 block w-full min-w-0 rounded-lg border border-[var(--border)] bg-white px-2 py-[7px] text-[var(--ink)] font-[inherit] text-[13px] opacity-100;
 }
 .notice-table-filter::placeholder {
-  color: #9ca3af;
+  @apply text-[#9ca3af];
   opacity: 0.4;
 }
 .notice-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 16px;
-  margin-top: 16px;
-  font-size: 13px;
+  @apply mt-4 flex items-center justify-end gap-4 text-[13px];
 }
 .notice-page-size {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  @apply flex items-center gap-2;
 }
 .notice-page-size select {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
+  @apply rounded-lg border border-[var(--border)] bg-white px-2 py-[6px] text-[var(--ink)];
 }
 .notice-pagination-actions {
-  display: flex;
-  gap: 8px;
+  @apply flex gap-2;
 }
 .record-actions {
-  justify-content: flex-end;
-  gap: 8px;
+  @apply justify-end gap-2;
 }
 .record-icon-button {
-  display: inline-grid;
-  width: 34px;
-  height: 34px;
-  padding: 7px;
-  place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: #fff;
-  color: #5d3d8c;
-  transition:
-    color 0.15s,
-    background 0.15s,
-    border-color 0.15s;
+  @apply inline-grid h-[34px] w-[34px] place-items-center rounded-[9px] border border-[var(--border)] bg-white p-[7px] text-[#5d3d8c] transition-[color,background-color,border-color] duration-150;
 }
 .record-icon-button svg {
-  width: 18px;
-  height: 18px;
+  @apply h-[18px] w-[18px];
 }
 .record-icon-button:hover {
   border-color: #cdb9ed;
@@ -3158,21 +3117,17 @@ function formatNoticeDate(value?: string | null) {
   background: #fff0ed;
 }
 .record-icon-button:focus-visible {
-  outline: 3px solid #9157de55;
-  outline-offset: 2px;
+  @apply outline outline-[3px] outline-[#9157de55] outline-offset-2;
 }
 @media (max-width: 600px) {
   .notice-option-form {
-    align-items: stretch;
-    flex-direction: column;
+    @apply items-stretch flex-col;
   }
   .option-grid-footer {
-    align-items: flex-end;
-    flex-direction: column;
+    @apply items-end flex-col;
   }
   .notice-pagination {
-    align-items: flex-end;
-    flex-direction: column;
+    @apply items-end flex-col;
   }
 }
 </style>

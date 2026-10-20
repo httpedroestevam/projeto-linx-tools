@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS public.videos (
   author_name text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'published' CHECK (status IN ('draft','published'));
+ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS published_at timestamptz;
 ALTER TABLE public.app_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notices ENABLE ROW LEVEL SECURITY;
@@ -127,6 +129,17 @@ CREATE TABLE IF NOT EXISTS public.portal_links (
  created_at timestamptz NOT NULL DEFAULT now(),
  updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE public.portal_links ADD COLUMN IF NOT EXISTS display_order integer;
+WITH ranked_links AS (
+ SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS position
+ FROM public.portal_links
+)
+UPDATE public.portal_links AS link
+SET display_order = ranked_links.position::integer
+FROM ranked_links
+WHERE link.id = ranked_links.id AND link.display_order IS NULL;
+ALTER TABLE public.portal_links ALTER COLUMN display_order SET DEFAULT 1;
+ALTER TABLE public.portal_links ALTER COLUMN display_order SET NOT NULL;
 CREATE TABLE IF NOT EXISTS public.portal_settings (
  id text PRIMARY KEY DEFAULT 'main',
  hero_title text NOT NULL DEFAULT 'Mais conexão. Mais soluções.',
@@ -202,3 +215,38 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.reorder_notices(uuid[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.reorder_notices(uuid[]) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.reorder_portal_links(p_link_ids uuid[])
+RETURNS boolean
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  LOCK TABLE public.portal_links IN SHARE ROW EXCLUSIVE MODE;
+
+  IF p_link_ids IS NULL
+    OR cardinality(p_link_ids) <> (SELECT count(*) FROM public.portal_links)
+    OR cardinality(p_link_ids) <> (
+      SELECT count(DISTINCT requested.link_id)
+      FROM unnest(p_link_ids) AS requested(link_id)
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM unnest(p_link_ids) AS requested(link_id)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM public.portal_links AS link WHERE link.id = requested.link_id
+      )
+    )
+  THEN
+    RAISE EXCEPTION 'A lista de links não corresponde aos registros atuais.';
+  END IF;
+
+  UPDATE public.portal_links AS link
+  SET display_order = requested.position::integer, updated_at = now()
+  FROM unnest(p_link_ids) WITH ORDINALITY AS requested(link_id, position)
+  WHERE link.id = requested.link_id;
+
+  RETURN true;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.reorder_portal_links(uuid[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.reorder_portal_links(uuid[]) TO service_role;

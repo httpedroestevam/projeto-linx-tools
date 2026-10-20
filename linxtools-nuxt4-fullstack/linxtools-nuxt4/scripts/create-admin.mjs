@@ -1,8 +1,8 @@
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { readFile } from 'node:fs/promises';
-import { createLocalRepository } from '../server/legacy/repositories/local.js';
-import { hashPassword, validateEmail } from '../server/legacy/services/auth.js';
+import { createLocalRepository } from '../server/legacy/repositories/local.ts';
+import { hashPassword, validateEmail } from '../server/legacy/services/auth.ts';
 
 // Roda exclusivamente no ambiente de administração do projeto.
 try {for(const line of (await readFile(new URL('../.env',import.meta.url),'utf8')).split(/\r?\n/)){

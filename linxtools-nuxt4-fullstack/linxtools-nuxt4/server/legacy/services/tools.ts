@@ -1,14 +1,23 @@
-import { field, HttpError } from '../lib/http.js';
-import { inspectXML } from './xml.js';
+import { field, HttpError } from '../lib/http.ts';
+import { inspectXML } from './xml.ts';
+import type { InputRecord } from '../types.ts';
 
-function choice(v, values, name) {
-  if (!values.includes(v)) throw new HttpError(400, `Opção inválida em ${name}.`);
+interface ToolResult {
+  title: string;
+  output: string;
+  language: string;
+  details?: unknown;
+  note?: string;
+}
+
+function choice<const T extends readonly string[]>(v: unknown, values: T, name: string): T[number] {
+  if (typeof v !== 'string' || !values.includes(v)) throw new HttpError(400, `Opção inválida em ${name}.`);
   return v;
 }
 
-function countNodes(root) {
+function countNodes(root: unknown) {
   const stats = { objects: 0, arrays: 0, values: 0, maxDepth: 0 };
-  function visit(node, depth) {
+  function visit(node: unknown, depth: number): void {
     stats.maxDepth = Math.max(stats.maxDepth, depth);
     if (Array.isArray(node)) { stats.arrays++; for (const item of node) visit(item, depth+1); }
     else if (node !== null && typeof node === 'object') { stats.objects++; for (const item of Object.values(node)) visit(item, depth+1); }
@@ -18,11 +27,11 @@ function countNodes(root) {
   return stats;
 }
 
-function formatJSON(payload) {
+function formatJSON(payload: InputRecord): ToolResult {
   const source = field(payload.content, 'JSON');
   let parsed;
   try { parsed = JSON.parse(source); }
-  catch (err) { throw new HttpError(422, `JSON inválido: ${err.message}`); }
+  catch (err) { throw new HttpError(422, `JSON inválido: ${err instanceof Error ? err.message : 'erro desconhecido'}`); }
   const mode = choice(payload.mode || 'pretty', ['pretty', 'compact'], 'formatação');
   const indentation = Number(payload.indent || 2);
   if (![2, 4].includes(indentation)) throw new HttpError(400, 'A indentação deve ser de 2 ou 4 espaços.');
@@ -30,14 +39,14 @@ function formatJSON(payload) {
   return { title: 'JSON validado com sucesso', output, language: 'json', details: countNodes(parsed) };
 }
 
-function validateXML(payload) {
+function validateXML(payload: InputRecord): ToolResult {
   const xml = field(payload.content, 'XML');
   const info = inspectXML(xml);
   const message = `XML estruturalmente válido.\n\nElemento raiz: <${info.root}>\nElementos: ${info.tags}\nProfundidade máxima: ${info.maxDepth}\nTamanho: ${info.bytes} bytes`;
   return { title: 'Estrutura XML válida', output: message, language: 'text', details: info, note: 'Validação sintática. Não verifica XSD, assinatura digital nem regras da SEFAZ.' };
 }
 
-function generateFeedback(payload) {
+function generateFeedback(payload: InputRecord): ToolResult {
   const target = choice(payload.target || 'client', ['client', 'internal', 'escalation'], 'destinatário');
   const tone = choice(payload.tone || 'professional', ['professional', 'direct'], 'tom');
   const customer = field(payload.customer || '', 'nome', 100, false);
@@ -61,9 +70,9 @@ const SCRIPT_PRESETS = {
   'windows-services': { label: 'Consulta de serviços (CMD)', output: 'sc query state= all\nsc query "{service}"' },
   'powershell-port': { label: 'Verificação de porta (PowerShell)', output: 'Test-NetConnection -ComputerName {host} -Port {port}' },
   'sql-read': { label: 'Consulta de conectividade SQL (leitura)', output: 'SELECT CURRENT_TIMESTAMP AS data_servidor;' }
-};
-function generateScript(payload) {
-  const preset = choice(payload.preset, Object.keys(SCRIPT_PRESETS), 'modelo');
+} as const;
+function generateScript(payload: InputRecord): ToolResult {
+  const preset = choice(payload.preset, Object.keys(SCRIPT_PRESETS), 'modelo') as keyof typeof SCRIPT_PRESETS;
   const host = field(payload.host || 'localhost', 'host', 100);
   const service = field(payload.service || 'FirebirdServerDefaultInstance', 'serviço', 120);
   const port = Number(payload.port || 3050);
@@ -80,15 +89,15 @@ const SCOPE_RULES = {
   'fiscal': { team: 'Suporte técnico + especialista fiscal', reason: 'Ocorrências fiscais requerem conferência de regras e condições de emissão.', next: 'Colete código de rejeição, UF, tipo de documento, certificado e evidências sem dados sensíveis.' },
   'customization': { team: 'Produto / Comercial / Serviços', reason: 'Alterações de produto e personalizações podem depender de avaliação de viabilidade.', next: 'Documente o caso de uso, o resultado esperado e o processo atual.' },
   'access': { team: 'Suporte / Administração de acessos', reason: 'Permissões e acessos dependem de regras de responsabilidade.', next: 'Confirme a identidade pelos canais oficiais e siga o processo de autorização.' }
-};
-function checkScope(payload) {
-  const category = choice(payload.category, Object.keys(SCOPE_RULES), 'categoria');
+} as const;
+function checkScope(payload: InputRecord): ToolResult {
+  const category = choice(payload.category, Object.keys(SCOPE_RULES), 'categoria') as keyof typeof SCOPE_RULES;
   const description = field(payload.description, 'descrição', 1500);
   const rule = SCOPE_RULES[category];
   return { title: 'Sugestão de encaminhamento', output: `DEMANDA\n${description}\n\nÁREA SUGERIDA\n${rule.team}\n\nCRITÉRIO\n${rule.reason}\n\nPRÓXIMO PASSO\n${rule.next}`, language: 'text', note: 'Orientação preliminar baseada em exemplos; não substitui a matriz oficial de escopo ou a triagem humana.' };
 }
 
-function buildShare(payload) {
+function buildShare(payload: InputRecord): ToolResult {
   const title = field(payload.title, 'título', 160);
   const context = field(payload.context, 'contexto', 1500);
   const steps = field(payload.steps, 'passos', 3000);
@@ -97,7 +106,7 @@ function buildShare(payload) {
   return { title: 'Procedimento pronto para compartilhar', output, language: 'text' };
 }
 
-function textUtilities(payload) {
+function textUtilities(payload: InputRecord): ToolResult {
   const source = field(payload.content, 'texto');
   const action = choice(payload.action || 'trim', ['trim', 'unique', 'stats'], 'utilitário');
   const lines = source.split(/\r?\n/);
@@ -108,7 +117,7 @@ function textUtilities(payload) {
   return { title: action === 'stats' ? 'Estatísticas do texto' : 'Texto processado', output, language: 'text', details: { originalLines: lines.length, resultingLines: output.split('\n').length } };
 }
 
-const handlers = {
+const handlers: Record<string, (payload: InputRecord) => ToolResult> = {
   'json-formatter': formatJSON,
   'xml-validator': validateXML,
   'feedback-generator': generateFeedback,
@@ -118,7 +127,7 @@ const handlers = {
   'text-utilities': textUtilities
 };
 
-export function executeTool(slug, payload) {
+export function executeTool(slug: string, payload: InputRecord): ToolResult {
   if (!handlers[slug]) throw new HttpError(404, 'Ferramenta não encontrada ou indisponível.');
   return handlers[slug](payload);
 }

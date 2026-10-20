@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { noticeInput, sanitizeNoticeHtml } from '../server/legacy/services/content.js';
+import { noticeInput, sanitizeNoticeHtml } from '../server/legacy/services/content.ts';
 
 test('comunicado mantém formatação permitida e remove conteúdo executável', () => {
   const html = sanitizeNoticeHtml(

@@ -1,6 +1,6 @@
 # Linxtools 2.0 — Nuxt 4 + Vue 3 + TypeScript + Nitro
 
-Migração arquitetural do protótipo Linxtools V1.3. O frontend foi reescrito em **Vue 3 com `<script setup lang="ts">` e Nuxt 4**, o backend de rotas foi transferido para **Nuxt Server API (Nitro)** e as regras de negócio validadas da V1.3 foram preservadas em módulos JavaScript sob `server/legacy/`. Isso é deliberado para reduzir risco de regressões: uma conversão integral dessas regras para TypeScript pode ser feita depois, por domínio.
+Migração arquitetural do protótipo Linxtools V1.3. O frontend usa **Vue 3 com `<script setup lang="ts">`, Nuxt 4 e Tailwind CSS**, o backend de rotas usa **Nuxt Server API (Nitro)** e as regras de negócio validadas da V1.3 estão organizadas em módulos TypeScript sob `server/legacy/`. Os estilos da interface usam classes utilitárias Tailwind e `@apply`; estilos específicos necessários à integração do TinyMCE permanecem no componente do editor. Scripts operacionais e testes permanecem em JavaScript.
 
 O sistema utiliza um único servidor full-stack. **Supabase é opcional**, e o armazenamento local mantém dados em `storage/data.json` por padrão. O modo Supabase utiliza o adaptador PostgREST da V1.3; **não utiliza Supabase Auth** e precisa de um projeto Supabase real para ser validado.
 
@@ -70,13 +70,13 @@ O backoffice em `/operacao` permite a perfis autorizados:
 |---|---|
 | Visão geral | Métricas de conteúdos, atalho às áreas de gestão |
 | Comunicados | Criar, editar, publicar, agendar, fixar, exigir ciência, arquivar e gerenciar categorias e prioridades |
-| Vídeos | Cadastrar, atualizar e excluir links do YouTube e Vimeo |
+| Vídeos | Cadastrar, atualizar, publicar/agendar e excluir links do YouTube e Vimeo |
 | Releases | Cadastrar, publicar, salvar rascunhos e arquivar |
 | Links úteis | Cadastrar, editar, salvar rascunhos, publicar e arquivar |
 | Usuários | Criar e editar contas; na sub-aba Perfis e permissões, definir os acessos padrão de cada perfil |
 | Configurações | Editar título, descrição e aviso destacado na home |
 
-Somente administrador acessa gestão de usuários, perfis e configurações. As flags editoriais são `notices`, `videos`, `releases`, `links`. A sub-aba **Perfis e permissões**, dentro de Usuários, define os valores padrão usados ao criar contas; contas existentes mantêm suas permissões individuais, ajustáveis na aba Usuários. Administradores sempre têm acesso total. Alterações de usuários revogam sessões antigas. Na área **Comunicados**, as sub-abas **Categorias** e **Prioridades** permitem adicionar, renomear e remover opções. Ao remover uma opção, comunicados existentes são atualizados para uma opção disponível. Acesso ao mural, aos vídeos e aos links exige autenticação; Webee Tools e releases são públicos no MVP.
+Somente administrador acessa gestão de usuários, perfis e configurações. As flags editoriais são `notices`, `videos`, `releases`, `links`. A sub-aba **Perfis e permissões**, dentro de Usuários, define os valores padrão usados ao criar contas; contas existentes mantêm suas permissões individuais, ajustáveis na aba Usuários. Administradores sempre têm acesso total. Alterações de usuários revogam sessões antigas. Na área **Comunicados**, as sub-abas **Categorias** e **Prioridades** permitem adicionar, renomear e remover opções. Ao remover uma opção, comunicados existentes são atualizados para uma opção disponível. As tabelas administrativas de comunicados, categorias, prioridades, vídeos, releases e links usam o grid compartilhado, com filtros, ordenação, paginação e redimensionamento. A reordenação manual de comunicados fica disponível diretamente pela alça de arraste; links mantêm a ação de ativar a ordenação manual. A leitura do mural, da Central de Aprendizado e de links úteis é pública para comunicados publicados, vídeos elegíveis e links ativos; rascunhos, itens arquivados e conteúdos agendados para o futuro permanecem ocultos. Operações editoriais e confirmação de leitura continuam protegidas.
 
 ### Cadastro de usuários corrigido
 
@@ -95,7 +95,7 @@ linxtools-nuxt4/
 ├── server/
 │   ├── api/[...path].ts          # Rotas REST Nitro: frontend separado da lógica API
 │   ├── utils/repository.ts       # Seleção de banco
-│   └── legacy/                   # Domínio, segurança e persistência da V1.3
+│   └── legacy/                   # Domínio, segurança e persistência em TypeScript
 ├── shared/types/index.ts        # Modelos TypeScript
 ├── scripts/
 │   ├── create-admin.mjs
@@ -113,16 +113,16 @@ linxtools-nuxt4/
 **Importante:** criar um Supabase não é obrigatório para executar esta versão. A arquitetura contém uma camada de repositório intercambiável.
 
 1. Faça backup de `storage/data.json`.
-2. Crie um projeto Supabase e execute **todo** `supabase/schema.sql` no SQL Editor. O schema atualizado também migra `notices.display_order` e instala a função transacional de reordenação manual. Se o projeto já estiver em uso, execute novamente o arquivo atualizado.
+2. Crie um projeto Supabase e execute **todo** `supabase/schema.sql` no SQL Editor. O schema atualizado migra as colunas de publicação de vídeos, `display_order` de comunicados e links, e instala as funções transacionais de reordenação. Se o projeto já estiver em uso, execute novamente o arquivo atualizado.
 3. Copie `.env.example` para `.env` e informe `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` (no **backend**, nunca em `runtimeConfig.public`).
 4. Com `DATA_PROVIDER=local`, execute `npm run migrate:supabase` para enviar os dados atuais.
 5. Altere `DATA_PROVIDER=supabase` e reinicie `npm run dev`.
 
 A migração não importa sessões; após a troca de armazenamento, usuários devem autenticar novamente. O script é para bases pequenas, não possui reconciliação transacional nem mecanismo de rollback automático. **As políticas de RLS, o login com Supabase Auth e o deploy dependem da arquitetura final escolhida** e não foram migrados nesta versão. Em operação real, prefira conectar uma solução de identidade corporativa ou Supabase Auth com políticas apropriadas.
 
-### Imagens e editor de comunicados
+### Imagens e editor de conteúdo
 
-O editor de comunicados usa TinyMCE 8 self-hosted, interface em Português do Brasil, e a licença comunitária GPL-2.0-or-later (`license-key="gpl"`). Confirme que a distribuição do sistema atende às obrigações GPL; para distribuição proprietária incompatível, obtenha uma licença comercial TinyMCE antes de publicar. O pós-instalação prepara as traduções e recursos de interface necessários em `public/tinymce`.
+Os formulários de comunicados, vídeos, releases e links reutilizam o mesmo editor TinyMCE 8 self-hosted, com interface em Português do Brasil e licença comunitária GPL-2.0-or-later (`license-key="gpl"`). Confirme que a distribuição do sistema atende às obrigações GPL; para distribuição proprietária incompatível, obtenha uma licença comercial TinyMCE antes de publicar. O pós-instalação prepara as traduções e recursos de interface necessários em `public/tinymce`.
 
 Uploads aceitam PNG, JPEG, GIF e WebP de até 5 MB. Com `DATA_PROVIDER=local`, os arquivos ficam em `storage/uploads/notices`. Com `DATA_PROVIDER=supabase`, a API cria e usa um bucket público, por padrão `notice-media`; outro nome pode ser definido com `SUPABASE_NOTICE_MEDIA_BUCKET`. A chave de serviço permanece no servidor. O HTML é sanitizado tanto ao salvar quanto ao servir comunicados existentes; somente imagens e iframes de vídeo com hosts permitidos são preservados.
 

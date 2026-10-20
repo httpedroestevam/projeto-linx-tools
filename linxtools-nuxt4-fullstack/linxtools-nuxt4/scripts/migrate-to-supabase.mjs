@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { starterTools } from '../server/legacy/catalog.js';
+import { starterTools } from '../server/legacy/catalog.ts';
 
 // Este script migra apenas dados. Ele NÃO faz deploy do servidor na Supabase.
 try {
@@ -45,7 +45,19 @@ await upload('notices',notices.map(({acknowledgements,...notice}) => ({
   display_order: noticeOrder.get(notice.id)
 })),'id');
 await upload('notice_acknowledgements',(data.notices || []).flatMap(n=>(n.acknowledgements || []).map(user_id=>({notice_id:n.id,user_id}))),'notice_id,user_id');
-await upload('videos',data.videos || [],'id');
-await upload('portal_links',data.links || [],'id');
+await upload('videos',(data.videos || []).map(video=>({
+  ...video,
+  status:video.status || 'published',
+  published_at:video.published_at || video.created_at || null
+})),'id');
+const links=[...(data.links || [])].sort((a,b)=>{
+  const aOrder=Number.isInteger(a.display_order)&&a.display_order>0?a.display_order:null;
+  const bOrder=Number.isInteger(b.display_order)&&b.display_order>0?b.display_order:null;
+  if(aOrder!==null&&bOrder!==null)return aOrder-bOrder||String(a.id).localeCompare(String(b.id));
+  if(aOrder!==null)return -1;
+  if(bOrder!==null)return 1;
+  return String(a.created_at||'').localeCompare(String(b.created_at||''))||String(a.id).localeCompare(String(b.id));
+});
+await upload('portal_links',links.map((link,index)=>({...link,display_order:link.display_order||index+1})),'id');
 if(data.portal || data.profile_permissions || data.notice_options) await upload('portal_settings',[{id:'main',...(data.portal||{}),...(data.profile_permissions?{profile_permissions:data.profile_permissions}:{}),...(data.notice_options?{notice_options:data.notice_options}:{})}], 'id');
 console.log('Importação concluída. Altere DATA_PROVIDER=supabase em .env e reinicie o servidor.');

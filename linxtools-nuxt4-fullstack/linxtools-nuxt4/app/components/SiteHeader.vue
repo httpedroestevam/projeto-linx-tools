@@ -5,11 +5,11 @@ const canManage=computed(()=>session.user.value?.role==='admin'||Boolean(session
 const links=[{to:'/',label:'Início'},{to:'/mural',label:'Mural'},{to:'/tools',label:'Webee Tools'},{to:'/aprender',label:'Aprendizado'},{to:'/releases',label:'Releases'},{to:'/links',label:'Links úteis'}]
 </script>
 <template>
-  <header class="topbar">
-    <div class="topbar-inner container">
+  <header class="topbar z-30">
+    <div class="topbar-inner container mx-auto flex items-center">
       <NuxtLink to="/" class="logo" @click="menu=false"><span class="logo-emblem">✳</span>linx<span class="logo-light">tools</span><span class="brand-dot">.</span></NuxtLink>
       <button class="mobile-menu" type="button" :aria-expanded="menu" aria-label="Abrir navegação" @click="menu=!menu">☰</button>
-      <nav :class="['top-nav',{opened:menu}]" aria-label="Navegação principal">
+      <nav :class="['top-nav flex items-center',{opened:menu}]" aria-label="Navegação principal">
         <NuxtLink v-for="link in links" :key="link.to" :to="link.to" @click="menu=false">{{link.label}}</NuxtLink>
       </nav>
       <div class="header-account">

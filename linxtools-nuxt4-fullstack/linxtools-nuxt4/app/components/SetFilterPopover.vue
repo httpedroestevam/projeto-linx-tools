@@ -86,14 +86,15 @@ function toggleVisibleOptions() {
 </script>
 
 <template>
-  <div class="set-filter-popover">
+  <div class="relative inline-flex flex-[0_0_auto]">
     <button
-      class="set-filter-trigger"
-      :class="{
-        'filter-active': active,
-        'filter-open': open,
-        'set-filter-trigger-compact': compact,
-      }"
+      class="relative inline-grid h-[26px] w-[26px] cursor-pointer place-items-center rounded-md border border-transparent bg-transparent p-[5px] text-[#77738a] hover:border-[#d9c9ef] hover:bg-[#f5f0fc] hover:text-[var(--purple-dark)]"
+      :class="[
+        compact ? 'h-6 w-4 rounded' : '',
+        compact ? 'p-0' : '',
+        active ? 'text-[var(--purple)]' : '',
+        open ? 'border-[#d9c9ef] bg-[#f5f0fc] text-[var(--purple-dark)]' : '',
+      ]"
       type="button"
       :aria-label="`Filtrar ${label}`"
       :aria-expanded="open"
@@ -102,6 +103,7 @@ function toggleVisibleOptions() {
       @click.stop="emit('toggle')"
     >
       <svg
+        :class="compact ? 'h-4 w-4' : 'h-[15px] w-[15px]'"
         aria-hidden="true"
         viewBox="0 0 24 24"
         fill="none"
@@ -112,27 +114,32 @@ function toggleVisibleOptions() {
       >
         <path d="M4 5h16l-6.5 7.5V19l-3 1v-7.5L4 5Z" />
       </svg>
+      <span
+        v-if="active"
+        aria-hidden="true"
+        class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-[var(--purple)]"
+      />
     </button>
     <div
       v-if="open"
       :id="`${id}-panel`"
-      class="set-filter-panel"
-      :class="{ 'set-filter-panel-right': align === 'right' }"
+      class="absolute left-0 top-[calc(100%+5px)] z-[30] w-[250px] max-w-[min(250px,80vw)] whitespace-normal rounded-[10px] border border-[var(--border)] bg-white p-3 text-left text-[13px] font-normal text-[var(--ink)] shadow-[0_12px_30px_rgba(38,25,59,0.18)]"
+      :class="align === 'right' ? 'left-auto right-0' : ''"
       role="group"
       :aria-label="`Filtro de ${label}`"
       @click.stop
     >
-      <label class="set-filter-search-label" :for="`${id}-search`">
+      <label class="mb-[5px] block text-[11px] font-semibold text-[var(--gray)]" :for="`${id}-search`">
         Pesquisar opções
       </label>
       <input
         :id="`${id}-search`"
         v-model="search"
-        class="set-filter-search"
+        class="mb-2 h-auto w-full min-w-0 rounded-[7px] border border-[var(--border)] bg-white px-[9px] py-[7px] text-[13px] text-[var(--ink)] opacity-100 placeholder:text-[#9ca3af] placeholder:opacity-40"
         type="search"
         placeholder="Pesquisar..."
       />
-      <label class="set-filter-choice set-filter-select-all">
+      <label class="mb-1 flex min-h-8 cursor-pointer items-center gap-2 rounded-t-none border-b border-[#eeeaf3] px-1 py-[5px] font-semibold hover:bg-[#f8f5fc] [&_input]:m-0 [&_input]:h-[15px] [&_input]:w-[15px] [&_input]:accent-[var(--purple)]">
         <input
           type="checkbox"
           :checked="allVisibleSelected"
@@ -141,11 +148,11 @@ function toggleVisibleOptions() {
         />
         <span>Selecionar tudo</span>
       </label>
-      <div class="set-filter-options">
+      <div class="max-h-[210px] overscroll-contain overflow-y-auto">
         <label
           v-for="option in visibleOptions"
           :key="option.value"
-          class="set-filter-choice"
+          class="flex min-h-8 cursor-pointer items-center gap-2 rounded-[5px] px-1 py-[5px] hover:bg-[#f8f5fc] [&_span]:[overflow-wrap:anywhere] [&_input]:m-0 [&_input]:h-[15px] [&_input]:w-[15px] [&_input]:flex-[0_0_auto] [&_input]:accent-[var(--purple)]"
         >
           <input
             type="checkbox"
@@ -154,14 +161,14 @@ function toggleVisibleOptions() {
           />
           <span>{{ option.label }}</span>
         </label>
-        <p v-if="!visibleOptions.length" class="set-filter-empty">
+        <p v-if="!visibleOptions.length" class="mx-1 my-2 text-[var(--gray)]">
           Nenhuma opção encontrada.
         </p>
       </div>
-      <div class="set-filter-footer">
+      <div class="mt-2 flex items-center justify-between gap-2 border-t border-[#eeeaf3] pt-2 text-[11px] text-[var(--gray)]">
         <span>{{ modelValue === null ? options.length : modelValue.length }} selecionada(s)</span>
         <button
-          class="set-filter-clear"
+          class="cursor-pointer rounded-[5px] border-0 bg-transparent px-1.5 py-1 text-[var(--purple-dark)] hover:bg-[#f5f0fc] disabled:cursor-default disabled:text-[#a5a1ad]"
           type="button"
           :disabled="!active"
           @click="emit('update:modelValue', null)"
@@ -172,165 +179,3 @@ function toggleVisibleOptions() {
     </div>
   </div>
 </template>
-
-<style scoped>
-.set-filter-popover {
-  position: relative;
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-.set-filter-trigger {
-  display: inline-grid;
-  width: 26px;
-  height: 26px;
-  padding: 5px;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: #77738a;
-  cursor: pointer;
-}
-.set-filter-trigger-compact {
-  width: 16px;
-  height: 24px;
-  padding: 0;
-  border-radius: 4px;
-}
-.set-filter-trigger svg {
-  width: 15px;
-  height: 15px;
-}
-.set-filter-trigger-compact svg {
-  width: 16px;
-  height: 16px;
-}
-.set-filter-trigger:hover,
-.set-filter-trigger.filter-open {
-  border-color: #d9c9ef;
-  background: #f5f0fc;
-  color: var(--purple-dark);
-}
-.set-filter-trigger.filter-active {
-  color: var(--purple);
-}
-.set-filter-trigger.filter-active::after {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--purple);
-  content: "";
-}
-.set-filter-panel {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 5px);
-  left: 0;
-  width: 250px;
-  max-width: min(250px, 80vw);
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 12px 30px rgba(38, 25, 59, 0.18);
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 400;
-  text-align: left;
-  white-space: normal;
-}
-.set-filter-panel-right {
-  right: 0;
-  left: auto;
-}
-.set-filter-search-label {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--gray);
-  font-size: 11px;
-  font-weight: 600;
-}
-.set-filter-search {
-  width: 100%;
-  min-width: 0;
-  margin-bottom: 8px;
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: #fff;
-  color: var(--ink);
-  font: inherit;
-  opacity: 1;
-}
-.set-filter-search::placeholder {
-  color: #9ca3af;
-  opacity: 0.4;
-}
-.set-filter-options {
-  max-height: 210px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.set-filter-choice {
-  display: flex;
-  min-height: 32px;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 4px;
-  border-radius: 5px;
-  cursor: pointer;
-}
-.set-filter-choice:hover {
-  background: #f8f5fc;
-}
-.set-filter-choice input {
-  flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  accent-color: var(--purple);
-}
-.set-filter-choice span {
-  overflow-wrap: anywhere;
-}
-.set-filter-select-all {
-  margin-bottom: 4px;
-  border-bottom: 1px solid #eeeaf3;
-  border-radius: 0;
-  font-weight: 600;
-}
-.set-filter-empty {
-  margin: 8px 4px;
-  color: var(--gray);
-}
-.set-filter-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #eeeaf3;
-  color: var(--gray);
-  font-size: 11px;
-}
-.set-filter-clear {
-  padding: 4px 6px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--purple-dark);
-  font: inherit;
-  cursor: pointer;
-}
-.set-filter-clear:hover:not(:disabled) {
-  background: #f5f0fc;
-}
-.set-filter-clear:disabled {
-  color: #a5a1ad;
-  cursor: default;
-}
-</style>

@@ -52,13 +52,12 @@ async function acknowledge() {
 <template>
   <div class="container page">
     <NuxtLink class="inline-link" to="/mural">← Voltar ao mural</NuxtLink>
-    <div v-if="loading" class="empty" style="margin-top: 25px">
+    <div v-if="loading" class="empty mt-[25px]">
       Carregando...
     </div>
     <div
       v-else-if="notice"
-      class="panel panel-pad"
-      style="max-width: 820px; margin-top: 26px"
+      class="panel panel-pad mt-[26px] max-w-[820px]"
     >
       <div class="v-space">
         <span class="pill">{{
@@ -66,11 +65,14 @@ async function acknowledge() {
         }}</span>
         <span v-if="notice.pinned" class="pill amber">Fixado</span>
       </div>
-      <h1 style="font-size: 35px; margin: 17px 0 8px">{{ notice.title }}</h1>
-      <p class="muted" style="font-size: 12px">
+      <h1 class="mb-2 mt-[17px] text-[35px]">{{ notice.title }}</h1>
+      <p class="muted text-xs">
         {{ formatDate(notice.published_at) }} · {{ notice.author_name }}
       </p>
-      <div class="notice-body-content" v-html="notice.body"></div>
+      <div
+        class="my-7 max-w-full [overflow-wrap:anywhere] leading-[1.85] [&_img]:block [&_img]:h-auto [&_img]:max-w-full [&_video]:aspect-video [&_video]:h-auto [&_video]:w-full [&_video]:max-w-full [&_iframe]:aspect-video [&_iframe]:h-auto [&_iframe]:w-full [&_iframe]:max-w-full [&_table]:block [&_table]:w-full [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:border-collapse [&_td]:border [&_td]:border-[var(--border)] [&_td]:px-2 [&_td]:py-1.5 [&_th]:border [&_th]:border-[var(--border)] [&_th]:px-2 [&_th]:py-1.5 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-[#f3f0f7] [&_pre]:p-3"
+        v-html="notice.body"
+      ></div>
       <div v-if="notice.requires_ack">
         <div v-if="notice.acknowledged" class="success">
           ✓ Você confirmou a leitura deste comunicado.
@@ -93,49 +95,8 @@ async function acknowledge() {
       </div>
       <div v-if="error" class="error">{{ error }}</div>
     </div>
-    <div v-else class="empty" style="margin-top: 25px">
+    <div v-else class="empty mt-[25px]">
       {{ error || "Comunicado não encontrado." }}
     </div>
   </div>
 </template>
-
-<style scoped>
-.notice-body-content {
-  max-width: 100%;
-  margin: 28px 0;
-  overflow-wrap: anywhere;
-  line-height: 1.85;
-}
-.notice-body-content :deep(img),
-.notice-body-content :deep(video),
-.notice-body-content :deep(iframe) {
-  max-width: 100%;
-  height: auto;
-}
-.notice-body-content :deep(iframe),
-.notice-body-content :deep(video) {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-}
-.notice-body-content :deep(img) {
-  display: block;
-}
-.notice-body-content :deep(table) {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  overflow-x: auto;
-  border-collapse: collapse;
-}
-.notice-body-content :deep(td),
-.notice-body-content :deep(th) {
-  border: 1px solid var(--border);
-  padding: 6px 8px;
-}
-.notice-body-content :deep(pre) {
-  overflow-x: auto;
-  padding: 12px;
-  border-radius: 8px;
-  background: #f3f0f7;
-}
-</style>

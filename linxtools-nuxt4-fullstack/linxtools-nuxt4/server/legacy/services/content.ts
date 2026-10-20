@@ -1,5 +1,7 @@
-import { field, HttpError } from '../lib/http.js';
+import { field, HttpError } from '../lib/http.ts';
 import sanitizeHtml from 'sanitize-html';
+import { isInputRecord } from '../types.ts';
+import type { InputRecord, NoticeOptions } from '../types.ts';
 
 const noticeHtmlOptions = {
   allowedTags: [
@@ -104,15 +106,15 @@ const noticeHtmlOptions = {
   },
 };
 
-export function sanitizeNoticeHtml(value) {
+export function sanitizeNoticeHtml(value: string): string {
   return sanitizeHtml(value, noticeHtmlOptions);
 }
 
-export function sanitizeNotice(notice) {
+export function sanitizeNotice<T extends { body?: unknown }>(notice: T) {
   return { ...notice, body: sanitizeNoticeHtml(String(notice.body || '')) };
 }
 
-export const defaultNoticeOptions = {
+export const defaultNoticeOptions: NoticeOptions = {
   categories: [
     { id: 'Geral', label: 'Geral' },
     { id: 'Procedimento', label: 'Procedimento' },
@@ -125,13 +127,14 @@ export const defaultNoticeOptions = {
     { id: 'critical', label: 'Crítica' }
   ]
 };
-export function noticeOptionsInput(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new HttpError(400,'Informe opções válidas para os comunicados.');
-  const normalize = (items,name,maxLabel) => {
+export function noticeOptionsInput(value: unknown): NoticeOptions {
+  if (!isInputRecord(value)) throw new HttpError(400,'Informe opções válidas para os comunicados.');
+  const input = value;
+  const normalize = (items: unknown,name: string,maxLabel: number) => {
     if (!Array.isArray(items) || !items.length || items.length > 50) throw new HttpError(400,`Mantenha entre 1 e 50 ${name}.`);
     const ids=new Set(),labels=new Set();
-    return items.map(item=>{
-      if(!item||typeof item!=='object'||Array.isArray(item))throw new HttpError(400,`Opção inválida em ${name}.`);
+    return items.map((item: unknown)=>{
+      if(!isInputRecord(item))throw new HttpError(400,`Opção inválida em ${name}.`);
       const id=field(item.id,`${name}: identificador`,60);
       const label=field(item.label,`${name}: nome`,maxLabel);
       const normalizedLabel=label.toLocaleLowerCase('pt-BR');
@@ -145,13 +148,13 @@ export function noticeOptionsInput(input) {
   if(Object.keys(input).some(key=>!['categories','priorities'].includes(key)))throw new HttpError(400,'Campo desconhecido nas opções dos comunicados.');
   return {categories,priorities};
 }
-export function normalizeNoticeOptions(input) {
+export function normalizeNoticeOptions(input: unknown): NoticeOptions {
   return input ? noticeOptionsInput(input) : structuredClone(defaultNoticeOptions);
 }
-export function noticeInput(input, { partial = false, options = defaultNoticeOptions } = {}) {
-  const result = {};
+export function noticeInput(input: InputRecord, { partial = false, options = defaultNoticeOptions }: { partial?: boolean; options?: unknown } = {}) {
+  const result: InputRecord = {};
   const selectedOptions=normalizeNoticeOptions(options);
-  for (const [name, limit] of [['title',140]]) {
+  for (const [name, limit] of [['title',140] as const]) {
     if (!partial || Object.hasOwn(input, name)) result[name] = field(input[name],name,limit);
   }
   if (!partial || Object.hasOwn(input, 'body')) {
@@ -159,11 +162,16 @@ export function noticeInput(input, { partial = false, options = defaultNoticeOpt
     if (!body.trim()) throw new HttpError(400, 'O conteúdo do comunicado não pode ficar vazio.');
     result.body = body;
   }
-  const defaults={category:selectedOptions.categories[0].id,priority:selectedOptions.priorities.find(p=>p.id==='normal')?.id||selectedOptions.priorities[0].id,status:'published'};
-  for (const [name, values] of [['category',selectedOptions.categories.map(c=>c.id)],['priority',selectedOptions.priorities.map(p=>p.id)],['status',['draft','published']]]) {
+  const defaults: Record<string, string>={category:selectedOptions.categories[0]?.id ?? 'Geral',priority:selectedOptions.priorities.find(p=>p.id==='normal')?.id||selectedOptions.priorities[0]?.id || 'normal',status:'published'};
+  const valueFields: readonly [string, string[]][] = [
+    ['category',selectedOptions.categories.map(c=>c.id)],
+    ['priority',selectedOptions.priorities.map(p=>p.id)],
+    ['status',['draft','published']]
+  ];
+  for (const [name, values] of valueFields) {
     if (!partial || Object.hasOwn(input, name)) {
       const raw = input[name] || defaults[name];
-      if (!values.includes(raw)) throw new HttpError(400, `Valor inválido para ${name}.`);
+      if (typeof raw !== 'string' || !values.includes(raw)) throw new HttpError(400, `Valor inválido para ${name}.`);
       result[name] = raw;
     }
   }
@@ -177,18 +185,24 @@ export function noticeInput(input, { partial = false, options = defaultNoticeOpt
     if (!partial || Object.hasOwn(input,name)) {
       if (input[name] === '' || input[name] === null || input[name] === undefined) result[name] = null;
       else {
-        const date = new Date(input[name]);
-        if (typeof input[name] !== 'string' || Number.isNaN(date.getTime()) || !/^\d{4}-\d{2}-\d{2}T/.test(input[name])) throw new HttpError(400, `Data inválida: ${name}.`);
+        const value = input[name];
+        if (typeof value !== 'string') throw new HttpError(400, `Data inválida: ${name}.`);
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime()) || !/^\d{4}-\d{2}-\d{2}T/.test(value)) throw new HttpError(400, `Data inválida: ${name}.`);
         result[name] = date.toISOString();
       }
     }
   }
   return result;
 }
-export function videoInput(input) {
+export function videoInput(input: InputRecord) {
   const title = field(input.title,'título',140);
-  const description = field(input.description || '', 'descrição',1500,false);
+  const description = sanitizeNoticeHtml(field(input.description || '', 'descrição',20_000,false));
   const category = field(input.category || 'Treinamento','categoria',50);
+  const status = input.status ?? 'published';
+  if (typeof status !== 'string' || !['published','draft'].includes(status)) throw new HttpError(400,'Status do vídeo inválido.');
+  let published_at = input.published_at || null;
+  if (published_at && (typeof published_at !== 'string' || !/^(\d{4})-(\d{2})-(\d{2})$/.test(published_at) || Number.isNaN(Date.parse(published_at+'T00:00:00Z')) || new Date(published_at+'T00:00:00Z').toISOString().slice(0,10)!==published_at)) throw new HttpError(400,'Data de publicação do vídeo inválida.');
   let url;
   try { url = new URL(field(input.url,'URL',500)); }
   catch { throw new HttpError(400,'Link do vídeo inválido.'); }
@@ -201,5 +215,5 @@ export function videoInput(input) {
   else throw new HttpError(400,'Use um link do YouTube ou Vimeo.');
   if (provider === 'youtube' && !/^[a-zA-Z0-9_-]{11}$/.test(provider_id || '')) throw new HttpError(400,'ID do YouTube inválido.');
   if (provider === 'vimeo' && !/^\d{6,12}$/.test(provider_id || '')) throw new HttpError(400,'ID do Vimeo inválido.');
-  return { title,description,category,provider,provider_id,external_url:url.href,embed_url:provider === 'youtube' ? `https://www.youtube-nocookie.com/embed/${provider_id}` : `https://player.vimeo.com/video/${provider_id}` };
+  return { title,description,category,status,published_at,provider,provider_id,external_url:url.href,embed_url:provider === 'youtube' ? `https://www.youtube-nocookie.com/embed/${provider_id}` : `https://player.vimeo.com/video/${provider_id}` };
 }

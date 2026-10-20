@@ -1,6 +1,46 @@
 <script setup lang="ts">
-import type {UsefulLink} from '../../shared/types'
-const session=useSession(),links=ref<UsefulLink[]>([]),loading=ref(true),error=ref('')
-onMounted(async()=>{await session.refresh();if(session.user.value)try{links.value=(await $fetch<{links:UsefulLink[]}>('/api/links')).links}catch(e){error.value=apiMessage(e)}loading.value=false})
+import type { UsefulLink } from "../../shared/types";
+const links = ref<UsefulLink[]>([]),
+  loading = ref(true),
+  error = ref("");
+onMounted(async () => {
+  try {
+    links.value = (await $fetch<{ links: UsefulLink[] }>("/api/links")).links;
+  } catch (e) {
+    error.value = apiMessage(e);
+  } finally {
+    loading.value = false;
+  }
+});
 </script>
-<template><div class="container page"><div class="page-heading"><div class="eyebrow">Acesso rápido</div><h1>Links úteis</h1><p>Documentos, sistemas e referências compartilhados pela liderança.</p></div><div v-if="loading" class="empty">Carregando...</div><div v-else-if="!session.user.value" class="panel panel-pad"><h2>Conteúdo interno</h2><p class="muted">Faça login para visualizar os recursos.</p><NuxtLink to="/login" class="btn btn-primary">Entrar</NuxtLink></div><div v-else><div v-if="error" class="error">{{error}}</div><div v-if="links.length" class="list-grid"><a v-for="link in links" :key="link.id" class="list-card" :href="link.url" target="_blank" rel="noopener noreferrer"><span class="pill">{{link.category}}</span><h3>{{link.title}}</h3><p>{{link.description}}</p><span class="inline-link">Abrir link ↗</span></a></div><div v-else class="empty">Nenhum link publicado no momento.</div></div></div></template>
+<template>
+  <div class="container page">
+    <div class="page-heading">
+      <div class="eyebrow">Acesso rápido</div>
+      <h1>Links úteis</h1>
+      <p>Documentos, sistemas e referências compartilhados pela liderança.</p>
+    </div>
+    <div v-if="loading" class="empty">Carregando...</div>
+    <div v-else>
+      <div v-if="error" class="error">{{ error }}</div>
+      <div v-if="links.length" class="list-grid">
+        <article v-for="link in links" :key="link.id" class="list-card">
+          <span class="pill">{{ link.category }}</span>
+          <h3>{{ link.title }}</h3>
+          <div
+            class="mb-3 [overflow-wrap:anywhere] [&_img]:max-w-full [&_video]:max-w-full [&_iframe]:max-w-full"
+            v-html="link.description"
+          ></div>
+          <a
+            class="inline-link"
+            :href="link.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Abrir link ↗</a
+          >
+        </article>
+      </div>
+      <div v-else class="empty">Nenhum link publicado no momento.</div>
+    </div>
+  </div>
+</template>

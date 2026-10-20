@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
-import { createLocalRepository } from '../legacy/repositories/local.js'
-import { createSupabaseRepository } from '../legacy/repositories/supabase.js'
+import { createLocalRepository } from '../legacy/repositories/local.ts'
+import { createSupabaseRepository } from '../legacy/repositories/supabase.ts'
 let repository: any
 export function getRepository(): any {
   if (!repository) {
